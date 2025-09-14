@@ -1,0 +1,4 @@
+namespace ziplog {
+namespace api {
+
+}}
