@@ -9,6 +9,7 @@
 #define ERROR -1
 
 using namespace ziplog::api;
+using namespace ziplog::impl;
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {

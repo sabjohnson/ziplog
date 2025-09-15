@@ -19,7 +19,7 @@ namespace impl {
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         id = client_id;
         config = cfg;
-        auto [ipAddress, port] = cfg.clients[id];
+        auto [ipAddress, port] = cfg.clients[client_id];
         isRunning = true;
         operation_number = 0;
     }

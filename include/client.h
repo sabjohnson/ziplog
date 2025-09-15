@@ -10,15 +10,14 @@ namespace impl {
 
 
    class Client {
-       // config info
-       int id;
-       ziplogConfig config;
-       // tcp info
-       string ipAddress;
-       int port;
-       bool isRunning;
-       int operation_number;
-      
+       private:
+           int id;
+           ziplogConfig config;
+           string ipAddress;
+           int port;
+           bool isRunning;
+           int operation_number;
+          
        public:
            Client(int client_id, const ziplogConfig& config);
            bool append(const string& data);

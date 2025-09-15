@@ -15,7 +15,7 @@ namespace api {
     // enumerate client rssponse messages
     enum messageType {
         APPEND,        // client > server
-        APPEND_ACK,    // server > client
+        ACK,           // server > client
         //READ,
         //READ_ACK,
         FORWARD_TO_SUB,        // server > subscriber
