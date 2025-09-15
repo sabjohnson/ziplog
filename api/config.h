@@ -16,10 +16,10 @@ namespace api {
     };
 
     struct ziplogConfig {
-    int f;
-    vector<string> clients;
-    vector<string> servers;
-    vector<string> subscribers;
+        int f;
+        vector<pair<string, int>> clients;
+        vector<pair<string, int>> servers;
+        vector<pair<string, int>> subscribers;
     };
 
     // helper to split "127.0.0.1:8001" into host and port

@@ -61,12 +61,12 @@ namespace api {
             if (config.f < 0) throw ConfigParseError("'f' field must be >= 0");
 
             // helper to extract and validate arrays
-            auto extractArray = [&](const string& field) -> vector<string> {
+            auto extractArray = [&](const string& field) -> vector<pair<string, int>> {
                 if (!j.contains(field) || !j[field].is_array()) {
                     throw ConfigParseError("Missing or invalid '" + field + "' field");
                 }
 
-                vector<string> result;
+                vector<pair<string, int>> result;
                 std::set<string> seen;
                 for (const auto& item : j[field]) {
                     if (!item.is_string()) {
@@ -76,8 +76,8 @@ namespace api {
                     string addr = item;
                     if (seen.count(addr)) throw ConfigParseError("Duplicate address");
                     seen.insert(addr);
-                    parseAddress(addr);
-                    result.push_back(addr);
+                    pair<string, int> val = parseAddress(addr);
+                    result.push_back(val);
                 }
                 return result;
             };

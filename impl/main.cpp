@@ -1,6 +1,6 @@
 #include "config.h"
-//#include "client.h"
-//#include "server.h"
+#include "client.h"
+#include "server.h"
 //#include "subscriber.h"
 #include <iostream>
 #include <string>
@@ -9,7 +9,6 @@
 #define ERROR -1
 
 using namespace ziplog::api;
-
 
 int main(int argc, char* argv[]) {
     if (argc != 4) {
@@ -27,10 +26,15 @@ int main(int argc, char* argv[]) {
 
         if (mode == "client") {
             std::cout << "Client mode with ID " << id << std::endl;
+            Client client(id, config);
         } else if (mode == "server") {
             std::cout << "Server mode with ID " << id << std::endl;
+            Server server(id, config);
+            server.run();
         } else if (mode == "subscriber") {
             std::cout << "Subscriber mode with ID " << id << std::endl;
+            //Subscriber subscriber(id, config);
+            //subscriber.run();
         } else {
             std::cerr << "Unsupported mode: " << mode << std::endl;
             return ERROR;
