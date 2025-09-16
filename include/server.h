@@ -1,6 +1,8 @@
 #pragma once
 #include "config.h"
 #include "network_utils.h"
+#include <atomic>
+#include <thread>
 
 using namespace ziplog::api;
 
@@ -13,8 +15,9 @@ namespace impl {
             ziplogConfig config;
             string ipAddress;
             int port;
-            bool isRunning;
+            std::atomic<bool> isRunning;
             int server_sock;
+            std::thread running_thread;
             
             void handleClient(int client_socket);
             void handleAppendMessage(const message& msg);
@@ -23,5 +26,6 @@ namespace impl {
             Server(int server_id, const ziplogConfig& cfg);
             void run();
             void shutdown();
+            ~Server();
     };
 }}

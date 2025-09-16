@@ -13,13 +13,15 @@ namespace ziplog {
 namespace impl {
 
     Client::Client(int client_id, const ziplogConfig &cfg) {
-        if (static_cast<size_t>(client_id) >= cfg.clients.size()) {
+        if (client_id < 0 || static_cast<size_t>(client_id) >= cfg.clients.size()) {
             throw std::invalid_argument("Id " + std::to_string(client_id) + " not in range of " + std::to_string(cfg.clients.size()));
         }
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         id = client_id;
         config = cfg;
-        auto [ipAddress, port] = cfg.clients[client_id];
+        auto [ip, p] = cfg.clients[client_id];
+        ipAddress = ip;
+        port = p;
         isRunning = true;
         operation_number = 0;
     }
@@ -36,31 +38,44 @@ namespace impl {
         int successful_sends = 0;
         for (size_t i = 0; i < config.servers.size(); i++) {
             auto [server_ip, server_port] = config.servers[i];
+            bool success = false;
             
-            // bind to socket
-            int sockfd = socket(AF_INET, SOCK_STREAM, 0);   // creates socket
-            if (sockfd < 0) {
-                continue;
-            }
+            // set up server addr
             struct sockaddr_in server_addr;
             memset(&server_addr, 0, sizeof(server_addr));
             server_addr.sin_family = AF_INET;
             server_addr.sin_port = htons(server_port);
             inet_pton(AF_INET, server_ip.c_str(), &server_addr.sin_addr);
             
-            if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-                std::cerr << "Failed to connect to server " << server_ip << ":" << server_port << std::endl;
+            for (int attempt = 0; attempt < config.max_retries && !success; attempt++) {
+                // bind to socket
+                int sockfd = socket(AF_INET, SOCK_STREAM, 0);   // creates socket
+                if (sockfd < 0) continue;
+                
+                // set receive timeout
+                struct timeval timeout;
+                timeout.tv_sec = config.timeout_ms / 1000;
+                timeout.tv_usec = (config.timeout_ms % 1000) * 1000;
+                setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+                
+                if (connect(sockfd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+                    std::cerr << "Failed to connect to server " << server_ip << ":" << server_port << std::endl;
+                    close(sockfd);
+                    continue;
+                }
+    
+                if (NetworkUtils::sendMessage(sockfd, msg)) {
+                    message ack_response;
+                    if (NetworkUtils::recvMessage(sockfd, ack_response)) {
+                        if (ack_response.type == ACK && ack_response.sequence_number == msg.sequence_number) {
+                            success = true;
+                            std::cout << "Received ACK from server " << i << std::endl;
+                        }
+                    }
+                }
                 close(sockfd);
-                continue;
             }
-
-            if (NetworkUtils::sendMessage(sockfd, msg)) {
-                successful_sends++;
-                std::cout << "Sent to server " << i << std::endl;
-            } else {
-                std::cerr << "Failed to send to server " << i << std::endl;
-            }
-            close(sockfd);
+            if (success) successful_sends++;
         }
         // increment operation number
         operation_number++;

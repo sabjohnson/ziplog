@@ -5,7 +5,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <iostream>
-#include <thread>
 #include <cstring>
 
 using namespace ziplog::api;
@@ -14,15 +13,18 @@ namespace ziplog {
 namespace impl {
 
     Server::Server(int server_id, const ziplogConfig &cfg) {
-        if (static_cast<size_t>(server_id) >= cfg.servers.size()) {
+        if (server_id < 0 || static_cast<size_t>(server_id) >= cfg.servers.size()) {
             throw std::invalid_argument("Id " + std::to_string(server_id) + " not in range of " + std::to_string(cfg.servers.size()));
         }
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         id = server_id;
         config = cfg;
-        auto [ipAddress, port] = cfg.servers[server_id];
+        auto [ip, p] = cfg.servers[server_id];
+        ipAddress = ip;
+        port = p;
         isRunning = false;
         server_sock = -1;
+        running_thread = std::thread(&Server::run, this);
     }
     
     void Server::run() {
@@ -94,7 +96,6 @@ namespace impl {
             message msg;
             if (!NetworkUtils::recvMessage(client_socket, msg)) {
                 std::cerr << "Failed to receive message from client" << std::endl;
-                close(client_socket);      // NOTE: should change later to allow for multiple messages on same connection
                 break;
             }
             std::cout << "Server " << id << " received message from client " << msg.sender_id
@@ -126,13 +127,7 @@ namespace impl {
     void Server::handleAppendMessage(const message &msg) {
         for (size_t i = 0; i < config.subscribers.size(); i++) {
             auto [subscriber_ip, subscriber_port] = config.subscribers[i];
-            
-            // connect to subscriber
-            int subscriber_socket = socket(AF_INET, SOCK_STREAM, 0);
-            if (subscriber_socket < 0) {
-                std::cerr << "Failed to create socket for subscriber " << i << std::endl;
-                continue;
-            }
+            bool success = false;
             
             struct sockaddr_in subscriber_addr;
             memset(&subscriber_addr, 0, sizeof(subscriber_addr));
@@ -140,22 +135,44 @@ namespace impl {
             subscriber_addr.sin_port = htons(subscriber_port);
             inet_pton(AF_INET, subscriber_ip.c_str(), &subscriber_addr.sin_addr);
             
-            if (connect(subscriber_socket, (struct sockaddr*)&subscriber_addr, sizeof(subscriber_addr)) < 0) {
-                std::cerr << "Failed to connect to subscriber " << subscriber_ip << ":" << subscriber_port << std::endl;
+            for (int attempt = 0; attempt < config.max_retries && !success; attempt++) {
+                // connect to subscriber
+                int subscriber_socket = socket(AF_INET, SOCK_STREAM, 0);
+                if (subscriber_socket < 0) {
+                    std::cerr << "Failed to create socket for subscriber " << i << std::endl;
+                    continue;
+                }
+                // set timeout
+                struct timeval timeout;
+                timeout.tv_sec = config.timeout_ms / 1000;
+                timeout.tv_usec = (config.timeout_ms % 1000) * 1000;
+                setsockopt(subscriber_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+                
+                if (connect(subscriber_socket, (struct sockaddr*)&subscriber_addr, sizeof(subscriber_addr)) < 0) {
+                    std::cerr << "Failed to connect to subscriber " << subscriber_ip << ":" << subscriber_port << std::endl;
+                    close(subscriber_socket);
+                    continue;
+                }
+                
+                // fwd message with this servers id as sender
+                message fwd_msg = msg;
+                fwd_msg.sender_id = id;
+                
+                if (NetworkUtils::sendMessage(subscriber_socket, fwd_msg)) {
+                    std::cout << "Server " << id << " forwarded message to subscriber " << i << std::endl;
+                    message ack_response;
+                    if (NetworkUtils::recvMessage(subscriber_socket, ack_response)) {
+                        if (ack_response.type == ACK && ack_response.sequence_number == msg.sequence_number) {
+                            std::cout << "Server " << id << " received ACK from subscriber " << i << std::endl;
+                            success = true;
+                        }
+                    }
+                }
                 close(subscriber_socket);
-                continue;
             }
-            
-            // fwd message with this servers id as sender
-            message fwd_msg = msg;
-            fwd_msg.sender_id = id;
-            
-            if (NetworkUtils::sendMessage(subscriber_socket, fwd_msg)) {
-                std::cout << "Server " << id << " forwarded message to subscriber " << i << std::endl;
-            } else {
-                std::cerr << "Failed to send message to subscriber " << i << std::endl;
+            if (!success) {
+                std::cerr << "Server " << id << " failed to deliver to subscriber " << i << " after " << config.max_retries << " attempts" << std::endl;
             }
-            close(subscriber_socket); // NOTE: wait for ack in future
         }
     }
     
@@ -168,5 +185,10 @@ namespace impl {
         std::cout << "Server " << id << " shutting down" << std::endl;
     }
     
-    
+    Server::~Server() {
+        shutdown();
+        if (running_thread.joinable()) {
+            running_thread.join();  // wait for thread to finish
+        }
+    }
 }}

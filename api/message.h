@@ -16,10 +16,6 @@ namespace api {
     enum messageType {
         APPEND,        // client > server
         ACK,           // server > client
-        //READ,
-        //READ_ACK,
-        FORWARD_TO_SUB,        // server > subscriber
-        FORWARD_TO_SUB_ACK,    // subscriber > server
     };
 
     struct message {

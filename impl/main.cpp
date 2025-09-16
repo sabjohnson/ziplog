@@ -1,9 +1,8 @@
 #include "config.h"
 #include "client.h"
 #include "server.h"
-//#include "subscriber.h"
+#include "subscriber.h"
 #include <iostream>
-#include <string>
 
 #define SUCCESS 0
 #define ERROR -1
@@ -31,11 +30,9 @@ int main(int argc, char* argv[]) {
         } else if (mode == "server") {
             std::cout << "Server mode with ID " << id << std::endl;
             Server server(id, config);
-            server.run();
         } else if (mode == "subscriber") {
             std::cout << "Subscriber mode with ID " << id << std::endl;
-            //Subscriber subscriber(id, config);
-            //subscriber.run();
+            Subscriber subscriber(id, config);
         } else {
             std::cerr << "Unsupported mode: " << mode << std::endl;
             return ERROR;

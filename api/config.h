@@ -18,6 +18,8 @@ namespace api {
 
     struct ziplogConfig {
         int f;
+        int max_retries;
+        int timeout_ms;
         vector<pair<string, int>> clients;
         vector<pair<string, int>> servers;
         vector<pair<string, int>> subscribers;

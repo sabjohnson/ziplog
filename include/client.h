@@ -1,7 +1,7 @@
 #pragma once
 #include "config.h"
 #include "network_utils.h"
-#include <stdexcept>
+#include <atomic>
 
 using namespace ziplog::api;
 
@@ -15,7 +15,7 @@ namespace impl {
            ziplogConfig config;
            string ipAddress;
            int port;
-           bool isRunning;
+           std::atomic<bool> isRunning;
            int operation_number;
           
        public:
