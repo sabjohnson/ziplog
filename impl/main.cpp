@@ -25,14 +25,31 @@ int main(int argc, char* argv[]) {
         ziplogConfig config = parseConfig(configFile);
 
         if (mode == "client") {
-            std::cout << "Client mode with ID " << id << std::endl;
+            //std::cout << "Client mode with ID " << id << std::endl;
             Client client(id, config);
+            
+            // read from stdin and send appends
+            std::cout << "Type string value to send APPENDs and hit Enter. Enter 'quit' to shutdown..." << std::endl;
+            string line;
+            while (std::getline(std::cin, line)) {
+                if (line == "quit") break;
+                bool success = client.append(line);
+                std::cout << (success ? "Sent successfully\n" : "Send failed\n") << std::endl;
+            }
         } else if (mode == "server") {
-            std::cout << "Server mode with ID " << id << std::endl;
+            //std::cout << "Server mode with ID " << id << std::endl;
             Server server(id, config);
+            
+            // keep alive until user presses Enter
+            std::cout << "Press Enter to shutdown..." << std::endl;
+            std::cin.get();
         } else if (mode == "subscriber") {
-            std::cout << "Subscriber mode with ID " << id << std::endl;
+            //std::cout << "Subscriber mode with ID " << id << std::endl;
             Subscriber subscriber(id, config);
+            
+            // keep alive until user presses Enter
+            std::cout << "Press Enter to shutdown..." << std::endl;
+            std::cin.get();
         } else {
             std::cerr << "Unsupported mode: " << mode << std::endl;
             return ERROR;

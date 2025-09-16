@@ -76,8 +76,12 @@ namespace impl {
             // accept connection (https://pubs.opengroup.org/onlinepubs/009604499/functions/accept.html)
             int server_socket = accept(subscriber_sock, (struct sockaddr*)&server_addr, &server_len);
             if (server_socket < 0) {
-                if (isRunning) std::cerr << "Failed to accept connection" << std::endl;
-                continue;
+                if (isRunning) {
+                    std::cerr << "Failed to accept connection" << std::endl;
+                    continue;
+                } else {
+                    break;
+                }
             }
             
             // handle server connection in thread (https://en.cppreference.com/w/cpp/thread/thread/thread.html)
@@ -94,7 +98,7 @@ namespace impl {
             message msg;
             // read message
             if (!NetworkUtils::recvMessage(server_sock, msg)) {
-                std::cerr << "Failed to receive message from server" << std::endl;
+                //std::cerr << "Failed to receive message from server" << std::endl;
                 break;
             }
             std::cout << "Subscriber " << id << " received message from server " << msg.sender_id
@@ -116,7 +120,7 @@ namespace impl {
                 std::cerr << "Failed to send ACK to server" << std::endl;
                 // break here?
             } else {
-                std::cout << "Subscriber " << id << " sent ACK for message " << msg.sequence_number << std::endl;
+                //std::cout << "Subscriber " << id << " sent ACK for message " << msg.sequence_number << std::endl;
             }
         }
         close(server_sock);
@@ -136,8 +140,8 @@ namespace impl {
             applyOperation(msg);
             applied.insert(msg.sequence_number);
             pending.erase(msg.sequence_number);
-            std::cout << "Subscriber " << id << " applied message " << msg.sequence_number
-                  << " after receiving from " << (config.f + 1) << " servers" << std::endl;
+            //std::cout << "Subscriber " << id << " applied message " << msg.sequence_number
+            //      << " after receiving from " << (config.f + 1) << " servers" << std::endl;
         } else {
             std::cout << "Subscriber " << id << " buffering message " << msg.sequence_number
                   << " (" << pending[msg.sequence_number].size() << "/" << (config.f + 1) << ")" << std::endl;
@@ -146,12 +150,13 @@ namespace impl {
     
     void Subscriber::applyOperation(const message &msg) {
         log.push_back(msg.data);
-        std::cout << "Applied operation: " << msg.data << " (log size: " << log.size() << ")" << std::endl;
+        std::cout << "Server " << id << " APPLIED message " << msg.sequence_number << " (log size: " << log.size() << ")" << std::endl;
     }
     
     void Subscriber::shutdown() {
         isRunning = false;
         if (subscriber_sock >= 0) {
+            ::shutdown(subscriber_sock, SHUT_RDWR);
             close(subscriber_sock);
             subscriber_sock = -1;
         }
@@ -162,6 +167,10 @@ namespace impl {
         shutdown();
         if (running_thread.joinable()) {
             running_thread.join();  // wait for thread to finish
+        }
+        std::cout << "Final log..." << std::endl;
+        for (size_t i = 0; i < log.size(); i++) {
+            std::cout << "Index " << i << ": " << log[i] << std::endl;
         }
     }
 }}

@@ -77,8 +77,12 @@ namespace impl {
             // accept connection (https://pubs.opengroup.org/onlinepubs/009604499/functions/accept.html)
             int client_socket = accept(server_sock, (struct sockaddr*)&client_addr, &client_len);
             if (client_socket < 0) {
-                if (isRunning) std::cerr << "Failed to accept connection" << std::endl;
-                continue;
+                if (isRunning) {
+                    std::cerr << "Failed to accept connection" << std::endl;
+                    continue;
+                } else {
+                    break;
+                }
             }
             
             // handle client connection in thread (https://en.cppreference.com/w/cpp/thread/thread/thread.html)
@@ -95,7 +99,7 @@ namespace impl {
             // recv message from client
             message msg;
             if (!NetworkUtils::recvMessage(client_socket, msg)) {
-                std::cerr << "Failed to receive message from client" << std::endl;
+                //std::cerr << "Failed to receive message from client" << std::endl;
                 break;
             }
             std::cout << "Server " << id << " received message from client " << msg.sender_id
@@ -117,7 +121,7 @@ namespace impl {
                 std::cerr << "Failed to send ACK to client" << std::endl;
                 // break here?
             } else {
-                std::cout << "Server " << id << " sent ACK for message " << msg.sequence_number << std::endl;
+                std::cout << "Server " << id << " sent ACK for message " << msg.sequence_number << "\n" << std::endl;
             }
         }
         close(client_socket);
@@ -179,6 +183,7 @@ namespace impl {
     void Server::shutdown() {
         isRunning = false;
         if (server_sock >= 0) {
+            ::shutdown(server_sock, SHUT_RDWR);
             close(server_sock);
             server_sock = -1;
         }
