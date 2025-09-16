@@ -1,5 +1,4 @@
 # Ziplog Implementation
-### Sabrina Johnson
 
 Project uses c++17, Make and an [external library](https://github.com/nlohmann/json) for JSON parsing.
 
@@ -40,4 +39,4 @@ Operations are applied in the order they reach quorum. This implementation does 
 for log placement yet.
 
 ## Notes/Comments
-- Communication is handled using TCP connection from the <sys.socket>, <netinet/in.h>, <arpa/inet.h> libraries.
+- Communication is handled using TCP connection from the `<sys.socket>`, `<netinet/in.h>`, `<arpa/inet.h>` libraries.
