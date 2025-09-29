@@ -5,30 +5,58 @@
 namespace ziplog {
 namespace api {
 
+    // Define htonll/ntohll if not available (not standard on all platforms)
+    #ifndef htonll
+    inline uint64_t htonll(uint64_t value) {
+        #if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+            uint32_t high = htonl(static_cast<uint32_t>(value >> 32));
+            uint32_t low = htonl(static_cast<uint32_t>(value & 0xFFFFFFFF));
+            return (static_cast<uint64_t>(low) << 32) | high;
+        #else
+            return value;  // Big-endian systems don't need conversion
+        #endif
+    }
+
+    inline uint64_t ntohll(uint64_t value) {
+        return htonll(value);  // Same operation for conversion
+    }
+    #endif
+
     // https://linux.die.net/man/3/htonl
     // https://cplusplus.com/reference/vector/vector/insert/#google_vignette
     
     vector<uint8_t> message::serialize() const {
-        vector<uint8_t> buffer;
-        
+
         // validate message struct does not exceed desired size
-        uint32_t struct_size = 4 + 4 + 4 + 4 + static_cast<uint32_t>(data.size());
-        if (struct_size > MAX_MESSAGE_SIZE) return buffer;
-       
+        uint32_t struct_size = 4 + 4 + 4 + 4 +
+                               4 + static_cast<uint32_t>(data.size()) +                    // data length + content
+                               4 + (static_cast<uint32_t>(ordering_values.size()) * 8);    // vector length + content
+
+        if (struct_size > MAX_MESSAGE_SIZE) return {};
+
+        vector<uint8_t> buffer;
+        buffer.reserve(struct_size);    // pre-allocate
+
+        // add type (4 byte)
+        uint32_t net_type = htonl(type);
+        buffer.insert(buffer.end(),
+                      reinterpret_cast<const uint8_t*>(&net_type),
+                      reinterpret_cast<const uint8_t*>(&net_type) + 4);
+
+        // add shard id (4 bytes)
+        uint32_t net_shard_id = htonl(shard_id);
+        buffer.insert(buffer.end(),
+                      reinterpret_cast<const uint8_t*>(&net_shard_id),
+                      reinterpret_cast<const uint8_t*>(&net_shard_id) + 4);
+
         // add sender_id (4 bytes)
         uint32_t net_sender_id = htonl(sender_id);
         buffer.insert(buffer.end(),
                       reinterpret_cast<const uint8_t*>(&net_sender_id),
                       reinterpret_cast<const uint8_t*>(&net_sender_id) + 4);
         
-        // add type (4 bytes)
-        uint32_t net_type = htonl(static_cast<uint32_t>(type));
-        buffer.insert(buffer.end(),
-                      reinterpret_cast<const uint8_t*>(&net_type),
-                      reinterpret_cast<const uint8_t*>(&net_type) + 4);
-        
-        // add sequence_number (4 bytes)
-        uint32_t net_seq = htonl(sequence_number);
+        // add sequence_number/count (4 bytes)
+        uint32_t net_seq = htonl(seq_or_count);
         buffer.insert(buffer.end(),
                       reinterpret_cast<const uint8_t*>(&net_seq),
                       reinterpret_cast<const uint8_t*>(&net_seq) + 4);
@@ -41,17 +69,43 @@ namespace api {
         
         // add data
         buffer.insert(buffer.end(), data.begin(), data.end());
-        
+
+        // add size of ordering_values vector (4 bytes)
+        uint32_t vec_size = htonl(static_cast<uint32_t>(ordering_values.size()));
+        buffer.insert(buffer.end(),
+                      reinterpret_cast<const uint8_t*>(&vec_size),
+                      reinterpret_cast<const uint8_t*>(&vec_size) + 4);
+
+        // add all elements from vector
+        for (uint64_t val : ordering_values) {
+            uint64_t net_val = htonll(val); // 64-bit conversion
+            buffer.insert(buffer.end(),
+                          reinterpret_cast<const uint8_t*>(&net_val),
+                          reinterpret_cast<const uint8_t*>(&net_val) + 8);
+        }
+
         return buffer;
     }
     
     std::optional<message> message::deserialize(const vector<uint8_t>& buffer) {
-        if (buffer.size() < 16) {  // minimum size: 4 fields × 4 bytes each
+        if (buffer.size() < 24) {  // minimum size: 6 fields × 4 bytes each
             return std::nullopt;
         }
     
         message msg;
         size_t offset = 0;
+
+        // read type
+        uint32_t net_type;
+        memcpy(&net_type, buffer.data() + offset, 4);
+        msg.type = static_cast<messageType>(ntohl(net_type));
+        offset += 4;
+
+        // read shard_id
+        uint32_t net_shard_id;
+        memcpy(&net_shard_id, buffer.data() + offset, 4);
+        msg.shard_id = ntohl(net_shard_id);
+        offset += 4;
         
         // read sender_id
         uint32_t net_sender_id;
@@ -59,16 +113,10 @@ namespace api {
         msg.sender_id = ntohl(net_sender_id);
         offset += 4;
         
-        // read type
-        uint32_t net_type;
-        memcpy(&net_type, buffer.data() + offset, 4);
-        msg.type = static_cast<messageType>(ntohl(net_type));
-        offset += 4;
-        
-        // read sequence_number
-        uint32_t net_seq;
-        memcpy(&net_seq, buffer.data() + offset, 4);
-        msg.sequence_number = ntohl(net_seq);
+        // read sequence_number/count
+        uint32_t net_seq_or_count;
+        memcpy(&net_seq_or_count, buffer.data() + offset, 4);
+        msg.seq_or_count = ntohl(net_seq_or_count);
         offset += 4;
         
         // read data length
@@ -84,7 +132,31 @@ namespace api {
         
         // read data
         msg.data = string(buffer.begin() + offset, buffer.begin() + offset + data_len);
-        
+        offset += data_len;
+
+        // read ordering values length
+        if (offset + 4 > buffer.size()) {
+            return std::nullopt;
+        }
+        uint32_t ordering_len;
+        memcpy(&ordering_len, buffer.data() + offset, 4);
+        ordering_len = ntohl(ordering_len);
+        offset += 4;
+
+        // validate vector size
+        if (offset + (ordering_len * 8) > buffer.size()) {
+            return std::nullopt;
+        }
+
+        // read each number of sequence array
+        msg.ordering_values.reserve(ordering_len);
+        for (uint32_t i = 0; i < ordering_len; i++) {
+            uint64_t net_val;
+            memcpy(&net_val, buffer.data() + offset, 8);
+            msg.ordering_values.push_back(ntohll(net_val));
+            offset += 8;
+        }
+
         return msg;
     }
 }}

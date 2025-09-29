@@ -10,25 +10,56 @@ using std::vector;
 namespace ziplog {
 namespace api {
 
-    const uint32_t MAX_MESSAGE_SIZE = 65535; // 2 ^ 16... 2 bytes read in for message header on tcp connection
-    
-    // enumerate client rssponse messages
-    enum messageType {
-        APPEND,        // client > server
-        ACK,           // server > client
+    // Constants
+    constexpr uint32_t MAX_MESSAGE_SIZE = 65535; // 2 ^ 16... 2 bytes read in for message header on tcp connection
+
+    // Message type of all servers
+    enum messageType : uint32_t {
+        APPEND,         // proxy to server OR server to subscriber
+        ACK,            // subscriber to server OR server to proxy
+        ZIP_REQUEST,    // proxy to zipper
+        ZIP_RESPONSE,   // zipper to proxy
     };
 
     struct message {
-        // id of node sending this message
-        int sender_id;
-        // from messageType enum
         messageType type;
-        // log entry number
-        uint32_t sequence_number;
-        // command
-        string data;
+        uint32_t shard_id;
+        uint32_t sender_id;         // index of address in config
+
+        uint32_t seq_or_count;      // log index or num of requests
+        string data;                // represents commands
+
+        vector<uint64_t> ordering_values;   // timestamps or sequence numbers (ZIP_REQ/RESP)
 
         vector<uint8_t> serialize() const;  // returns empty vector on failure (message is too large)
-        static std::optional<message> deserialize(const vector<uint8_t>& buffer);
+        static std::optional<message> deserialize(const vector<uint8_t>& buffer);   // return std::nullopt on failure
+
+        // Accessors to make intent clear (non-defensive assuming benign failures)
+        uint32_t get_sequence_number() const {
+            assert(type == APPEND || type == ACK);
+            return seq_or_count;
+        }
+
+        void set_sequence_number(uint32_t seq) {
+            assert(type == APPEND || type == ACK);
+            seq_or_count = seq;
+        }
+
+        uint32_t get_num_requests() const {
+            assert(type == ZIP_REQUEST || type == ZIP_RESPONSE);
+            return seq_or_count;
+        }
+
+        void set_num_requests(uint32_t count) {
+            assert(type == ZIP_REQUEST || type == ZIP_RESPONSE);
+            seq_or_count = count;
+        }
+
+        // Validator
+        bool is_valid() const {
+            if (type < APPEND || type > ZIP_RESPONSE) return false;
+            return true;
+        }
     };
+
 }}
