@@ -9,17 +9,19 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
+    // Storage servers in the paper
     class Server {
         private:
-            int id;
             ziplogConfig config;
+            int shard_id;
+            int id;
             string ipAddress;
             int port;
             std::atomic<bool> isRunning;
             int server_sock;
             std::thread running_thread;
             
-            void handleClient(int client_socket);
+            void handleProxy(int proxy_socket);
             void handleAppendMessage(const message& msg);
         
         public:

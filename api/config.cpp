@@ -49,7 +49,7 @@ namespace api {
 
     ziplogConfig parseConfigJSON(const string& json_str) {
         ziplogConfig config;
-        std::set<string> seen; // all seen addresses (for tracking duplicates between clients/servers/subscribers)
+        std::set<string> seen; // all seen addresses (for tracking duplicates between proxies/servers/subscribers)
 
         try {
             json j = json::parse(json_str);
@@ -70,6 +70,12 @@ namespace api {
             }
             config.timeout_ms = j["timeout_ms"];
             if (config.f < 0) throw ConfigParseError("'f' field must be >= 0");
+
+            // validate/store zipper address
+            if (!j.contains("zipper")) {
+                throw ConfigParseError("Missing or invalid 'zipper' field");
+            }
+            config.zipper = parseAddress(j["zipper"]);
 
             // helper to extract and validate arrays
             auto extractArray = [&](const string& field) -> vector<pair<string, int>> {
@@ -93,11 +99,11 @@ namespace api {
             };
 
             // update config (does not check for duplicates or 2f + 1 servers
-            config.clients = extractArray("clients");
+            config.proxies = extractArray("proxies");
             config.servers = extractArray("servers");
             config.subscribers = extractArray("subscribers");
 
-            // if (config.clients.size() < 1) throw ConfigParseError("Missing clients");
+            // if (config.proxies.size() < 1) throw ConfigParseError("Missing proxies");
             // if (config.subscribers.size() < 1) throw ConfigParseError("Missing subscribers");
             if (config.servers.size() < static_cast<size_t>(2 * config.f + 1)) {
                 throw ConfigParseError("Insufficient servers: need at least " +

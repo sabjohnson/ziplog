@@ -8,18 +8,18 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-
-   class Client {
+   // Note: this class has mixed functionality with clients/proxies from the paper
+   class Proxy {
        private:
-           int id;
            ziplogConfig config;
+           int shard_id;
+           int id;
            string ipAddress;
            int port;
            std::atomic<bool> isRunning;
-           int operation_number;
           
        public:
-           Client(int client_id, const ziplogConfig& config);
+           Proxy(int proxy_id, const ziplogConfig& config);
            bool append(const string& data);
            void shutdown();
    };

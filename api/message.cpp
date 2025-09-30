@@ -28,7 +28,7 @@ namespace api {
     vector<uint8_t> message::serialize() const {
 
         // validate message struct does not exceed desired size
-        uint32_t struct_size = 4 + 4 + 4 + 4 +
+        uint32_t struct_size = 4 + 4 + 4 + 8 +
                                4 + static_cast<uint32_t>(data.size()) +                    // data length + content
                                4 + (static_cast<uint32_t>(ordering_values.size()) * 8);    // vector length + content
 
@@ -56,10 +56,10 @@ namespace api {
                       reinterpret_cast<const uint8_t*>(&net_sender_id) + 4);
         
         // add sequence_number/count (4 bytes)
-        uint32_t net_seq = htonl(seq_or_count);
+        uint32_t net_seq = htonll(seq_or_count);
         buffer.insert(buffer.end(),
                       reinterpret_cast<const uint8_t*>(&net_seq),
-                      reinterpret_cast<const uint8_t*>(&net_seq) + 4);
+                      reinterpret_cast<const uint8_t*>(&net_seq) + 8);
         
         // add data length (4 bytes)
         uint32_t data_len = htonl(static_cast<uint32_t>(data.length()));
@@ -88,7 +88,7 @@ namespace api {
     }
     
     std::optional<message> message::deserialize(const vector<uint8_t>& buffer) {
-        if (buffer.size() < 24) {  // minimum size: 6 fields × 4 bytes each
+        if (buffer.size() < 28) {  // minimum size: 5 fields × 4 bytes each + 8 bytes
             return std::nullopt;
         }
     
@@ -114,10 +114,10 @@ namespace api {
         offset += 4;
         
         // read sequence_number/count
-        uint32_t net_seq_or_count;
-        memcpy(&net_seq_or_count, buffer.data() + offset, 4);
-        msg.seq_or_count = ntohl(net_seq_or_count);
-        offset += 4;
+        uint64_t net_seq_or_count;
+        memcpy(&net_seq_or_count, buffer.data() + offset, 8);
+        msg.seq_or_count = ntohll(net_seq_or_count);
+        offset += 8;
         
         // read data length
         uint32_t data_len;

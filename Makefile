@@ -9,10 +9,11 @@ JSON_HEADER = third_party/json.hpp
 
 # Source files
 API_SOURCES = api/config.cpp api/message.cpp api/network_utils.cpp
-SRC_SOURCES = impl/client.cpp impl/server.cpp impl/subscriber.cpp impl/main.cpp
+SRC_SOURCES = impl/zipper.cpp impl/proxy.cpp impl/server.cpp impl/subscriber.cpp impl/main.cpp
 
 ALL_SOURCES = $(API_SOURCES) $(SRC_SOURCES)
 OBJECTS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(ALL_SOURCES))
+TEST_OBJECTS = $(filter-out $(OBJ_DIR)/impl/main.o, $(OBJECTS)) # https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
 TARGET = ziplog
 
 # Build main executable
@@ -47,8 +48,13 @@ clean:
 external_clean: clean
 	rm -rf third_party/
 
-# Test target
-test: $(filter-out $(OBJ_DIR)/impl/main.o, $(OBJECTS)) | check_json
-	$(CXX) $(CXXFLAGS) $(INCLUDES) tests/*.cpp $^ -o test_runner
+# Build test target
+test_build: $(TEST_OBJECTS) | check_json
+	$(CXX) $(CXXFLAGS) $(INCLUDES) tests/*.cpp $(TEST_OBJECTS) -o test_runner
 
-.PHONY: clean external_clean test check_json download_json
+# Build and run test target
+test: $(TEST_OBJECTS) | check_json
+	$(CXX) $(CXXFLAGS) $(INCLUDES) tests/*.cpp $(TEST_OBJECTS) -o test_runner
+	./test_runner
+
+.PHONY: clean external_clean test test_build check_json download_json
