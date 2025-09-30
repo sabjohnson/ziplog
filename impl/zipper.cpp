@@ -83,7 +83,7 @@ namespace impl {
             std::lock_guard<std::mutex> lock(counter_mutex);
 
             // take note of batch request
-            pending_requests.push_back({req.sender_id, req.ordering_values, proxy_socket});
+            pending_requests.push_back({req.sender_id, req.seq_or_count, proxy_socket});
 
             // timer will handle the response
         } else {
@@ -144,26 +144,47 @@ namespace impl {
 
         if (pending_requests.empty()) return;
 
-        std::unordered_map<uint32_t, int> proxy_sockets;  // id > socket
-        vector<pair<uint64_t, uint32_t>> timestamps;    // vector or {timestamp, proxy_id}
+        std::unordered_map<uint32_t, int> proxy_sockets;    // proxy_id > socket
+        vector<pair<uint32_t, uint64_t>> proxy_slot_count;       // {proxy_id, num_slots}
 
         for (const auto& batch : pending_requests) {
-            // store connector socket
+            // store connector socket and number of requests
             proxy_sockets[batch.proxy_id] = batch.proxy_socket;
-
-            // add all timestamps
-            for (const auto& timestamp : batch.ordering_values) {
-                timestamps.push_back({timestamp, batch.proxy_id});
-            }
+            proxy_slot_count.push_back({batch.proxy_id, batch.num_slots});
         }
 
-        // sort timestamps
-        std::sort(timestamps.begin(), timestamps.end());
+        // sort based on number of requested slots (desc order)
+        std::sort(proxy_slot_count.begin(), proxy_slot_count.end(), [](const auto& a, const auto& b) { return a.second > b.second; });
+        std::cout << "sorted" << std::endl;
 
-        // allocate seq numbers
+        // get max slots
+        uint32_t max_slots_proxy = proxy_slot_count[0].first;
+        uint64_t max_slots = proxy_slot_count[0].second;
+
+        // sequence tracking
         std::unordered_map<uint32_t, vector<uint64_t>> proxy_sequence_numbers;
-        for (const auto& p : timestamps) {
-            proxy_sequence_numbers[p.second].push_back(globalSeqNum++);
+
+        // initialize errors
+        double init = static_cast<double>(max_slots) / proxy_slot_count.size();
+        vector<double> errors(proxy_slot_count.size() - 1, init);
+
+        // interleave slots
+        for (uint64_t slot = 0; slot < max_slots; slot++) {
+            std::cout << "b" << std::endl;
+            // yield to max proxy
+            proxy_sequence_numbers[max_slots_proxy].push_back(globalSeqNum++);
+
+            for (size_t i = 1; i < proxy_slot_count.size(); i++) {
+                std::cout << "a" << std::endl;
+                uint32_t slots_proxy = proxy_slot_count[i].first;
+                uint64_t slots = proxy_slot_count[i].second;
+
+                errors[i - 1] -= slots;
+                if (errors[i - 1] < 0) {
+                    proxy_sequence_numbers[slots_proxy].push_back(globalSeqNum++);
+                    errors[i - 1] += max_slots; // ?
+                }
+            }
         }
 
         std::cout << "Allocated slots ------------------------------------------------------" << std::endl;

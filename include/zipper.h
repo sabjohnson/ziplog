@@ -13,7 +13,7 @@ namespace impl {
 
     struct batchRequest {
         uint32_t proxy_id;
-        vector<uint64_t> ordering_values;
+        uint64_t num_slots;
         int proxy_socket;
     };
 

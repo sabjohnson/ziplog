@@ -6,6 +6,7 @@
 #include <unistd.h>         // close()
 #include <iostream>         // std::cout, std::cerr
 #include <cstring>          // memset()
+#include <cstdlib>           // rand()
 
 using namespace ziplog::api;
 
@@ -25,7 +26,7 @@ namespace impl {
         port = p;
         isRunning = true;
 
-        batch_size = 3;
+        batch_size = (rand() % 11) + 1; // values between 1 and 11
         // epoch tracking
         //first_epoch = true;
         //epoch_thread = std::thread(&Proxy::epochTimer(), this);
