@@ -20,6 +20,10 @@ namespace impl {
            int port;
            std::atomic<bool> isRunning;
 
+           int batch_size;
+           vector<uint64_t> batch_times;
+           vector<string> batch_values;
+
            // epoch tracking
            bool first_epoch;
            std::thread epoch_thread;

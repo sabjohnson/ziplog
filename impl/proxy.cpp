@@ -25,22 +25,32 @@ namespace impl {
         port = p;
         isRunning = true;
 
+        batch_size = 3;
         // epoch tracking
         //first_epoch = true;
         //epoch_thread = std::thread(&Proxy::epochTimer(), this);
     }
 
     bool Proxy::append(const std::string &data) {
-        // get seq number from zipper !!
+        // get current timestamp
+        auto cur = std::chrono::system_clock::now();
+        uint64_t timestamp = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(cur.time_since_epoch()).count());
+
+        // add timestamp and data to batch
+        batch_times.push_back(timestamp);
+        batch_values.push_back(data);
+
+        if (batch_times.size() < static_cast<size_t>(batch_size)) {
+            return false;
+        }
+
+        // build request to zipper
         message zip_req;
         zip_req.type = ZIP_REQUEST;
         zip_req.shard_id = shard_id;
         zip_req.sender_id = id;
-
-        zip_req.set_num_requests(1);
-        auto cur = std::chrono::system_clock::now();
-        uint64_t timestamp = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(cur.time_since_epoch()).count());
-        zip_req.set_timestamps({timestamp});
+        zip_req.set_num_requests(batch_size);
+        zip_req.set_timestamps(batch_times);
 
         message zip_resp;
         if (!NetworkUtils::requestFromZipper(config.zipper.first, config.zipper.second, zip_req, zip_resp, config.timeout_ms, config.max_retries)) {
@@ -51,6 +61,9 @@ namespace impl {
             std::cerr << "Zipper returned no sequence numbers" << std::endl;
             return false;
         }
+
+        batch_times.clear();
+        batch_values.clear();
 
         // create msg to be broadcasted
         message msg;
