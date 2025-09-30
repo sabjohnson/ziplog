@@ -12,7 +12,7 @@ using std::pair;
 namespace ziplog {
 namespace api {
 
-    static constexpr uint64_t EPOCH_DURATION_MS = 10000;  // keep this at a multiple of 10
+    static constexpr uint64_t EPOCH_DURATION_MS = 9000;  // keep this at a multiple of 10
 
 
     class ConfigParseError : public std::runtime_error {

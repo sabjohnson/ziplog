@@ -75,6 +75,9 @@ namespace impl {
             return;
         }
 
+        std::cout << "Received request from proxy " << req.sender_id
+                  << " with " << req.ordering_values.size() << " timestamp(s)" << std::endl;
+
         if (req.type == ZIP_REQUEST && req.shard_id == static_cast<uint32_t>(shard_id) && req.sender_id < static_cast<uint64_t>(numProxies)) {
             // obtain lock
             std::lock_guard<std::mutex> lock(counter_mutex);
@@ -187,7 +190,7 @@ namespace impl {
             }
             std::cout << "]" << std::endl;
         }
-        std::cout << "------------------------------------------------------------------------" << std::endl;
+        std::cout << "----------------------------------------------------------------------" << std::endl;
 
         // clear batch requests for this epoch
         pending_requests.clear();

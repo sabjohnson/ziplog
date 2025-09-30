@@ -24,6 +24,10 @@ namespace impl {
         ipAddress = ip;
         port = p;
         isRunning = true;
+
+        // epoch tracking
+        //first_epoch = true;
+        //epoch_thread = std::thread(&Proxy::epochTimer(), this);
     }
 
     bool Proxy::append(const std::string &data) {
@@ -32,6 +36,11 @@ namespace impl {
         zip_req.type = ZIP_REQUEST;
         zip_req.shard_id = shard_id;
         zip_req.sender_id = id;
+
+        zip_req.set_num_requests(1);
+        auto cur = std::chrono::system_clock::now();
+        uint64_t timestamp = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(cur.time_since_epoch()).count());
+        zip_req.set_timestamps({timestamp});
 
         message zip_resp;
         if (!NetworkUtils::requestFromZipper(config.zipper.first, config.zipper.second, zip_req, zip_resp, config.timeout_ms, config.max_retries)) {
