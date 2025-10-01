@@ -1,9 +1,9 @@
+#include "common.h"
 #include "config.h"
 #include "zipper.h"
 #include "proxy.h"
 #include "server.h"
 #include "subscriber.h"
-#include <iostream>
 
 #define SUCCESS 0
 #define ERROR -1
@@ -27,14 +27,14 @@ int main(int argc, char* argv[]) {
 
     try {
         string mode = argv[1];
-        string configFile = argv[2];
+        string config_file = argv[2];
 
-        std::optional<int> id;
+        optional<NodeId> id;
         if (argc == 4) {
-            id = std::stoi(argv[3]);
+            id = static_cast<NodeId>(std::stoi(argv[3]));
         }
 
-        ziplogConfig config = parseConfig(configFile);
+        ZiplogConfig config = parse_config(config_file);
 
         if (mode == "zipper") {
             Zipper zipper(config);
@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
             while (std::getline(std::cin, line)) {
                 if (line == "quit") break;
                 bool success = proxy.append(line);
-                std::cout << (success ? "Sent successfully\n" : "Send failed\n") << std::endl;
+                std::cout << (success ? "Sent successfully" : "Send failed") << std::endl;
             }
         } else if (mode == "server") {
             if (!id.has_value()) {

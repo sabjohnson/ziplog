@@ -16,13 +16,15 @@ OBJECTS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(ALL_SOURCES))
 TEST_OBJECTS = $(filter-out $(OBJ_DIR)/impl/main.o, $(OBJECTS)) # https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
 TARGET = ziplog
 
+COMMON_HEADERS = api/common.h api/types.h api/config.h api/message.h api/network_utils.h
+
 # Build main executable
 $(TARGET): $(OBJECTS) | check_json
 	$(CXX) $(OBJECTS) -o $(TARGET)
 
 # Compile source files - create directory structure in obj/
 # (| = order-only prereq: ensure json.hpp exists but don't rebuild if check_json runs)
-$(OBJ_DIR)/%.o: %.cpp | check_json
+$(OBJ_DIR)/%.o: %.cpp $(COMMON_HEADERS) | check_json
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 

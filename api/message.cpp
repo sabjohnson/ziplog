@@ -25,7 +25,7 @@ namespace api {
     // https://linux.die.net/man/3/htonl
     // https://cplusplus.com/reference/vector/vector/insert/#google_vignette
     
-    vector<uint8_t> message::serialize() const {
+    vector<uint8_t> Message::serialize() const {
 
         // validate message struct does not exceed desired size
         uint32_t struct_size = 4 + 4 + 4 + 8 +
@@ -38,7 +38,7 @@ namespace api {
         buffer.reserve(struct_size);    // pre-allocate
 
         // add type (4 byte)
-        uint32_t net_type = htonl(type);
+        uint32_t net_type = htonl(static_cast<uint32_t>(type));
         buffer.insert(buffer.end(),
                       reinterpret_cast<const uint8_t*>(&net_type),
                       reinterpret_cast<const uint8_t*>(&net_type) + 4);
@@ -87,18 +87,18 @@ namespace api {
         return buffer;
     }
     
-    std::optional<message> message::deserialize(const vector<uint8_t>& buffer) {
+    std::optional<Message> Message::deserialize(const vector<uint8_t>& buffer) {
         if (buffer.size() < 28) {  // minimum size: 5 fields × 4 bytes each + 8 bytes
-            return std::nullopt;
+            return nullopt;
         }
     
-        message msg;
+        Message msg;
         size_t offset = 0;
 
         // read type
         uint32_t net_type;
         memcpy(&net_type, buffer.data() + offset, 4);
-        msg.type = static_cast<messageType>(ntohl(net_type));
+        msg.type = static_cast<MessageType>(ntohl(net_type));
         offset += 4;
 
         // read shard_id
@@ -127,7 +127,7 @@ namespace api {
         
         // validate data length
         if (offset + data_len > buffer.size()) {
-            return std::nullopt;  // buffer too small for claimed data length
+            return nullopt;  // buffer too small for claimed data length
         }
         
         // read data
@@ -136,7 +136,7 @@ namespace api {
 
         // read ordering values length
         if (offset + 4 > buffer.size()) {
-            return std::nullopt;
+            return nullopt;
         }
         uint32_t ordering_len;
         memcpy(&ordering_len, buffer.data() + offset, 4);
@@ -145,7 +145,7 @@ namespace api {
 
         // validate vector size
         if (offset + (ordering_len * 8) > buffer.size()) {
-            return std::nullopt;
+            return nullopt;
         }
 
         // read each number of sequence array

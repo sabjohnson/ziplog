@@ -1,8 +1,6 @@
 #pragma once
 #include "config.h"
 #include "network_utils.h"
-#include <atomic>
-#include <thread>
 
 using namespace ziplog::api;
 
@@ -12,21 +10,25 @@ namespace impl {
     // Storage servers in the paper
     class Server {
         private:
-            ziplogConfig config;
-            int shard_id;
-            int id;
-            string ipAddress;
-            int port;
-            std::atomic<bool> isRunning;
-            int server_sock;
-            std::thread running_thread;
-            
-            void handleProxy(int proxy_socket);
-            void handleAppendMessage(const message& msg);
+            // base node
+            ZiplogConfig config_;
+            ShardId shard_id_;
+            NodeId id_;
+            string ip_address_;
+            int port_;
+            atomic<bool> is_running_;
+
+            int server_sock_;
+
+            // threading
+            thread running_thread_;
+
+            void run();
+            void handle_proxy(int proxy_socket);
+            void handle_append_message(const Message& msg);
         
         public:
-            Server(int server_id, const ziplogConfig& cfg);
-            void run();
+            Server(NodeId server_id, const ZiplogConfig& cfg);
             void shutdown();
             ~Server();
     };

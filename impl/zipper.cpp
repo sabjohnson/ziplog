@@ -3,57 +3,55 @@
 #include <sys/socket.h>     // accept()
 #include <netinet/in.h>     // sockaddr_in
 #include <unistd.h>
-#include <iostream>
 #include <algorithm>
-#include <unordered_map>
 
 using namespace ziplog::api;
-using namespace std::literals;
 
 namespace ziplog {
 namespace impl {
 
-    Zipper::Zipper(const ziplogConfig& cfg) {
-        config = cfg;
-        shard_id = 0;
+    Zipper::Zipper(const ZiplogConfig& cfg) {
+        config_ = cfg;
+        shard_id_ = 0;
         auto [ip, p] = cfg.zipper;
-        ipAddress = ip;
-        port = p;
-        isRunning = false;
-        zipper_sock = -1;
+        ip_address_ = ip;
+        port_ = p;
+        is_running_ = false;
+        
+        zipper_sock_ = -1;
 
         // global sequencing state
-        numProxies = cfg.proxies.size();
-        globalSeqNum = 0;
+        num_proxies_ = cfg.num_proxies();
+        global_seq_num_ = 0;
 
-        running_thread = std::thread(&Zipper::run, this);
-        epoch_thread = std::thread(&Zipper::epochTimer, this);
+        running_thread_ = thread(&Zipper::run, this);
+        epoch_thread_ = thread(&Zipper::epoch_timer, this);  // inits epoch_startup_
 
     }
 
     void Zipper::run() {
-        if (isRunning) {
+        if (is_running_) {
             std::cerr << "Zipper already running" << std::endl;
             return;
         }
-        isRunning = true;
+        is_running_ = true;
 
         // create listening socket
-        zipper_sock = NetworkUtils::createListeningSocket(ipAddress, port, true);
-        if (zipper_sock < 0) {
+        zipper_sock_ = NetworkUtils::create_listening_socket(ip_address_, port_, true);
+        if (zipper_sock_ < 0) {
             std::cerr << "Zipper failed to create server socket" << std::endl;
             return;
         }
 
         // handle connections
-        while (isRunning) {
+        while (is_running_) {
             struct sockaddr_in proxy_addr;
             socklen_t proxy_len = sizeof(proxy_addr);
 
             // accept connection
-            int proxy_socket = accept(zipper_sock, (struct sockaddr*)&proxy_addr, &proxy_len);
+            int proxy_socket = accept(zipper_sock_, (struct sockaddr*)&proxy_addr, &proxy_len);
             if (proxy_socket < 0) {
-                if (isRunning) {
+                if (is_running_) {
                     std::cerr << "Failed to accept connection" << std::endl;
                     continue;
                 } else {
@@ -62,15 +60,15 @@ namespace impl {
             }
 
             // handle request in thread
-            std::thread proxy_thread(&Zipper::handleProxy, this, proxy_socket);
+            thread proxy_thread(&Zipper::handle_proxy, this, proxy_socket);
             proxy_thread.detach();
         }
     }
 
-    void Zipper::handleProxy(int proxy_socket) {
+    void Zipper::handle_proxy(int proxy_socket) {
         // read from and respond to valid request (shards match and know proxy id)
-        message req;
-        if (!NetworkUtils::recvMessage(proxy_socket, req)) {
+        Message req;
+        if (!NetworkUtils::recv_message(proxy_socket, req)) {
             close(proxy_socket);
             return;
         }
@@ -78,12 +76,12 @@ namespace impl {
         std::cout << "Received request from proxy " << req.sender_id
                   << " with " << req.ordering_values.size() << " timestamp(s)" << std::endl;
 
-        if (req.type == ZIP_REQUEST && req.shard_id == static_cast<uint32_t>(shard_id) && req.sender_id < static_cast<uint64_t>(numProxies)) {
+        if (req.type == ZIP_REQUEST && req.shard_id == shard_id_ && req.sender_id < static_cast<NodeId>(num_proxies_)) {
             // obtain lock
-            std::lock_guard<std::mutex> lock(counter_mutex);
+            lock_guard<mutex> lock(mu_);
 
             // take note of batch request
-            pending_requests.push_back({req.sender_id, req.ordering_values, proxy_socket});
+            pending_requests_[req.sender_id] = {req.sender_id, req.ordering_values, proxy_socket};
 
             // timer will handle the response
         } else {
@@ -92,68 +90,68 @@ namespace impl {
     }
 
     void Zipper::shutdown() {
-        isRunning = false;
-        if (zipper_sock >= 0) {
-            ::shutdown(zipper_sock, SHUT_RDWR);
-            close(zipper_sock);
-            zipper_sock = -1;
+        is_running_ = false;
+        if (zipper_sock_ >= 0) {
+            ::shutdown(zipper_sock_, SHUT_RDWR);
+            close(zipper_sock_);
+            zipper_sock_ = -1;
         }
         std::cout << "Zipper shutting down" << std::endl;
     }
 
     Zipper::~Zipper() {
         shutdown();
-        if (running_thread.joinable()) {
-            running_thread.join();  // wait for thread to finish
+        if (running_thread_.joinable()) {
+            running_thread_.join();  // wait for thread to finish
         }
 
-        if (epoch_thread.joinable()) {
-            epoch_thread.join();
+        if (epoch_thread_.joinable()) {
+            epoch_thread_.join();
         }
     }
 
-    void Zipper::epochTimer() {
-        epoch_startup = std::chrono::system_clock::now();
+    void Zipper::epoch_timer() {
+        epoch_startup_ = now_ms();
 
-        while (isRunning) {
-            auto now = std::chrono::system_clock::now();
-            auto elapsed = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - epoch_startup).count());
+        while (is_running_) {
+            Timestamp now = now_ms();
+            Timestamp elapsed = now - epoch_startup_;
 
-            const uint64_t allocation_time = (EPOCH_DURATION_MS * 3) / 4;
+            const Timestamp allocation_time = (EPOCH_DURATION_MS * 3) / 4;
 
-            if (elapsed >= allocation_time and elapsed < (allocation_time + 10)) {
+            if (elapsed >= allocation_time && elapsed < (allocation_time + 10)) {
                 // allocate slots at 3/4 point
-                Zipper::allocateSlots();
+                Zipper::allocate_slots();
                 std::this_thread::sleep_for(10ms);
             }
 
             if (elapsed >= EPOCH_DURATION_MS) {
                 // restart timer
-                epoch_startup = std::chrono::system_clock::now();
+                epoch_startup_ = now_ms();
             }
 
             std::this_thread::sleep_for(5ms);
         }
     }
 
-    void Zipper::allocateSlots() {
+    void Zipper::allocate_slots() {
         // obtain lock
-        std::lock_guard<std::mutex> lock(counter_mutex);
+        lock_guard<mutex> lock(mu_);
 
-        std::cout << "Allocating slots for " << pending_requests.size() << " requests" << std::endl;
+        std::cout << "Allocating slots for " << pending_requests_.size() << " requests" << std::endl;
 
-        if (pending_requests.empty()) return;
+        if (pending_requests_.empty()) return;
 
-        std::unordered_map<uint32_t, int> proxy_sockets;  // id > socket
-        vector<pair<uint64_t, uint32_t>> timestamps;    // vector or {timestamp, proxy_id}
+        unordered_map<NodeId, int> proxy_sockets;  // id > socket
+        vector<pair<Timestamp, NodeId>> timestamps;    // vector or {timestamp, proxy_id}
 
-        for (const auto& batch : pending_requests) {
+        for (const auto& [proxy_id, batch] : pending_requests_) {
             // store connector socket
-            proxy_sockets[batch.proxy_id] = batch.proxy_socket;
+            proxy_sockets[proxy_id] = batch.proxy_socket;
 
             // add all timestamps
             for (const auto& timestamp : batch.ordering_values) {
-                timestamps.push_back({timestamp, batch.proxy_id});
+                timestamps.push_back({timestamp, proxy_id});
             }
         }
 
@@ -161,9 +159,9 @@ namespace impl {
         std::sort(timestamps.begin(), timestamps.end());
 
         // allocate seq numbers
-        std::unordered_map<uint32_t, vector<uint64_t>> proxy_sequence_numbers;
+        unordered_map<NodeId, vector<SequenceNumber>> proxy_sequence_numbers;
         for (const auto& p : timestamps) {
-            proxy_sequence_numbers[p.second].push_back(globalSeqNum++);
+            proxy_sequence_numbers[p.second].push_back(global_seq_num_++);
         }
 
         std::cout << "Allocated slots ------------------------------------------------------" << std::endl;
@@ -173,14 +171,13 @@ namespace impl {
             // get proxy socket
             int recipient = proxy_sockets[proxy_id];
 
-            message resp;
+            Message resp;
             resp.type = ZIP_RESPONSE;
-            resp.shard_id = shard_id;
-            resp.seq_or_count = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(epoch_startup.time_since_epoch()).count());
-            resp.set_num_requests(static_cast<uint64_t>(values.size()));
+            resp.shard_id = shard_id_;
+            resp.set_num_requests(static_cast<SequenceNumber>(values.size()));
             resp.set_assigned_sequences(values);
 
-            NetworkUtils::sendMessage(recipient, resp);
+            NetworkUtils::send_message(recipient, resp);
             close(recipient);
 
             std::cout << "proxy " << proxy_id << " : [";
@@ -193,6 +190,6 @@ namespace impl {
         std::cout << "----------------------------------------------------------------------" << std::endl;
 
         // clear batch requests for this epoch
-        pending_requests.clear();
+        pending_requests_.clear();
     }
 }}

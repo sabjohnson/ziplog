@@ -1,11 +1,6 @@
 #pragma once
 #include "config.h"
 #include "network_utils.h"
-#include <atomic>
-#include <thread>
-#include <mutex>
-#include <map>
-#include <set>
 
 using namespace ziplog::api;
 
@@ -14,28 +9,35 @@ namespace impl {
 
     class Subscriber {
         private:
-            ziplogConfig config;
-            int id;
-            string ipAddress;
-            int port;
-            std::atomic<bool> isRunning;
-            int subscriber_sock;
-            std::thread running_thread;
-            std::mutex mutex;
+            // base node
+            ZiplogConfig config_;
+            NodeId id_;
+            string ip_address_;
+            int port_;
+            atomic<bool> is_running_;
 
-            vector<string> log;
-            std::set<uint64_t> applied;         // seq_number had reached quorum and added to log
-            uint64_t next_seq;                  // next expected seq_number in log
-            std::map<uint64_t, string> gaps;    // reached quorum but not next expected seq_number
-            std::map<uint64_t, std::set<uint32_t>> pending; // seq_number to set of server id. not reached quorum yet
+            int subscriber_sock_;
 
-            void handleServer(int server_sock);
-            void processForQuorum(const message& msg);
-            void applyOperation(const message& msg);
+            // quorum tracking
+            unordered_map<SequenceNumber, set<NodeId>> pending_quorum_; // seq_number to set of server id. not reached quorum yet
+            set<SequenceNumber> applied_;                               // seq_number had reached quorum (not necessarily added to log)
+
+            // logging
+            vector<Command> log_;
+            SequenceNumber next_seq_;                                   // next expected seq_number in log
+            unordered_map<SequenceNumber, Command> out_of_order_;       // reached quorum but not next expected seq_number
+
+            // threading
+            mutex mu_;
+            thread running_thread_;
+
+            void run();
+            void handle_server(int server_sock);
+            void process_for_quorum(const Message& msg);
+            void apply_operation(const Message& msg);
 
         public:
-            Subscriber(int subscriber_id, const ziplogConfig& cfg);
-            void run();
+            Subscriber(NodeId subscriber_id, const ZiplogConfig& cfg);
             void shutdown();
             ~Subscriber();
     };

@@ -1,26 +1,16 @@
 #pragma once
-#include <cstdint>
-#include <vector>
-#include <string>
-#include <utility>
+#include "common.h"
 #include <stdexcept>
-
-using std::vector;
-using std::string;
-using std::pair;
 
 namespace ziplog {
 namespace api {
-
-    static constexpr uint64_t EPOCH_DURATION_MS = 9000;  // keep this at a multiple of 10
-
 
     class ConfigParseError : public std::runtime_error {
     public:
         ConfigParseError(const string& msg) : std::runtime_error(msg) {}
     };
 
-    struct ziplogConfig {
+    struct ZiplogConfig {
         int f;
         int max_retries;
         int timeout_ms;
@@ -28,6 +18,23 @@ namespace api {
         vector<pair<string, int>> proxies;
         vector<pair<string, int>> servers;
         vector<pair<string, int>> subscribers;
+
+        // helper methods
+        size_t quorum() const {
+            return f + 1;
+        }
+
+        size_t num_proxies() const {
+            return proxies.size();
+        }
+
+        size_t num_servers() const {
+            return servers.size();
+        }
+
+        size_t num_subscribers() const {
+            return subscribers.size();
+        }
     };
 
     /*
@@ -36,21 +43,21 @@ namespace api {
         @return: Pair of string and int if valid input.
         @throws: ConfigParseError on unsuccessful parsing (look at comments in config.cpp for more).
     */
-    pair<string, int> parseAddress(const string& addr);
+    pair<string, int> parse_address(const string& addr);
 
     /*
-        @brief: Takes file path of file containing JSON object and parses the file to create a ziplogConfig.
+        @brief: Takes file path of file containing JSON object and parses the file to create a ZiplogConfig.
         @param filename: Path of file.
-        @return: ziplogConfig object.
+        @return: ZiplogConfig object.
         @throws: ConfigParseError if file cannot be read or JSON structure is invalid.
     */
-    ziplogConfig parseConfig(const string& filename);
+    ZiplogConfig parse_config(const string& filename);
 
     /*
-        @brief: Takes raw string representing JSON object and parses into a ziplogConfig.
+        @brief: Takes raw string representing JSON object and parses into a ZiplogConfig.
         @param json_str: String JSON object representing ziplog config.
-        @return: ziplogConfig object.
+        @return: ZiplogConfig object.
         @throws: ConfigParseError if JSON structure is invalid.
     */
-    ziplogConfig parseConfigJSON(const string& json_str);
+    ZiplogConfig parse_config_JSON(const string& json_str);
 }}

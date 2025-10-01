@@ -1,9 +1,6 @@
 #pragma once
 #include "config.h"
 #include "network_utils.h"
-#include <atomic>
-#include <thread>
-#include <chrono>
 
 using namespace ziplog::api;
 
@@ -13,26 +10,29 @@ namespace impl {
    // Note: this class has mixed functionality with clients/proxies from the paper
    class Proxy {
        private:
-           ziplogConfig config;
-           int shard_id;
-           int id;
-           string ipAddress;
-           int port;
-           std::atomic<bool> isRunning;
+            // base node
+           ZiplogConfig config_;
+           ShardId shard_id_;
+           NodeId id_;
+           string ip_address_;
+           int port_;
+           atomic<bool> is_running_;
 
-           int batch_size;
-           vector<uint64_t> batch_times;
-           vector<string> batch_values;
+            // slot allocation
+           int batch_size_;
+           vector<Timestamp> batch_times_;
+           vector<Command> batch_values_;
 
-           // epoch tracking
-           bool first_epoch;
-           std::thread epoch_thread;
+           // threading
+           mutex mu_;
+           thread epoch_thread_;
 
-           void epochTimer();
+           void epoch_timer();
           
        public:
-           Proxy(int proxy_id, const ziplogConfig& config);
-           bool append(const string& data);
+           Proxy(NodeId proxy_id, const ZiplogConfig& config);
+           bool append(const Command& data);
            void shutdown();
+           ~Proxy();
    };
 }}

@@ -4,7 +4,6 @@
 #include <netinet/in.h>     // sockaddr_in, AF_INET
 #include <arpa/inet.h>      // inet_pton(), htons(), ntohs()
 #include <unistd.h>         // close()
-#include <iostream>         // std::cout, std::cerr
 #include <cstring>          // memset()
 
 using namespace ziplog::api;
@@ -12,48 +11,46 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-    Proxy::Proxy(int proxy_id, const ziplogConfig &cfg) {
-        if (proxy_id < 0 || static_cast<size_t>(proxy_id) >= cfg.proxies.size()) {
-            throw std::invalid_argument("Id " + std::to_string(proxy_id) + " not in range of " + std::to_string(cfg.proxies.size()));
-        }
-        // set value of members (we already know ip addr is in our valid range based on parsed config)
-        config = cfg;
-        shard_id = 0;
-        id = proxy_id;
-        auto [ip, p] = cfg.proxies[proxy_id];
-        ipAddress = ip;
-        port = p;
-        isRunning = true;
+    Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg) {
+        // validate node id
+        validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
 
-        batch_size = 3;
+        // set value of members (we already know ip addr is in our valid range based on parsed config)
+        config_ = cfg;
+        shard_id_ = 0;
+        id_ = proxy_id;
+        auto [ip, p] = cfg.proxies[proxy_id];
+        ip_address_ = ip;
+        port_ = p;
+        is_running_ = true;
+
+        batch_size_ = 3;
         // epoch tracking
-        //first_epoch = true;
-        //epoch_thread = std::thread(&Proxy::epochTimer(), this);
+        //epoch_thread = thread(&Proxy::epoch_timer(), this);
     }
 
-    bool Proxy::append(const std::string &data) {
+    bool Proxy::append(const Command &data) {
         // get current timestamp
-        auto cur = std::chrono::system_clock::now();
-        uint64_t timestamp = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(cur.time_since_epoch()).count());
+        Timestamp now = now_ms();
 
         // add timestamp and data to batch
-        batch_times.push_back(timestamp);
-        batch_values.push_back(data);
+        batch_times_.push_back(now);
+        batch_values_.push_back(data);
 
-        if (batch_times.size() < static_cast<size_t>(batch_size)) {
-            return false;
+        if (batch_times_.size() < static_cast<size_t>(batch_size_)) {
+            return true;
         }
 
         // build request to zipper
-        message zip_req;
+        Message zip_req;
         zip_req.type = ZIP_REQUEST;
-        zip_req.shard_id = shard_id;
-        zip_req.sender_id = id;
-        zip_req.set_num_requests(batch_size);
-        zip_req.set_timestamps(batch_times);
+        zip_req.shard_id = shard_id_;
+        zip_req.sender_id = id_;
+        zip_req.set_num_requests(batch_size_);
+        zip_req.set_timestamps(batch_times_);
 
-        message zip_resp;
-        if (!NetworkUtils::requestFromZipper(config.zipper.first, config.zipper.second, zip_req, zip_resp, config.timeout_ms, config.max_retries)) {
+        Message zip_resp;
+        if (!NetworkUtils::request_from_zipper(config_.zipper.first, config_.zipper.second, zip_req, zip_resp, config_.timeout_ms, config_.max_retries)) {
             return false;
         }
 
@@ -62,31 +59,35 @@ namespace impl {
             return false;
         }
 
-        batch_times.clear();
-        batch_values.clear();
+        batch_times_.clear();
+        batch_values_.clear();
 
         // create msg to be broadcasted
-        message msg;
+        Message msg;
         msg.type = APPEND;
-        msg.shard_id = shard_id;
-        msg.sender_id = id;
+        msg.shard_id = shard_id_;
+        msg.sender_id = id_;
         msg.seq_or_count = zip_resp.get_assigned_sequences()[0];
         msg.data = data;
         
         // attempt to replicate on f + 1 storage servers
-        int successful_sends = 0;
-        for (size_t i = 0; i < config.servers.size() && successful_sends < config.f + 1; i++) {
-            auto [server_ip, server_port] = config.servers[i];
+        size_t successful_sends = 0;
+        for (size_t i = 0; i < config_.num_servers() && successful_sends < config_.quorum(); i++) {
+            auto [server_ip, server_port] = config_.servers[i];
 
-            if (NetworkUtils::sendMessageToAddress(server_ip, server_port, msg, config.timeout_ms, config.max_retries)) {
+            if (NetworkUtils::send_message_to_address(server_ip, server_port, msg, config_.timeout_ms, config_.max_retries)) {
                 successful_sends++;
                 std::cout << "Received ACK from server " << i << std::endl;
             }
         }
-        return successful_sends == static_cast<int>(config.f + 1);
+        return successful_sends == config_.quorum();
     }
     
     void Proxy::shutdown() {
-        isRunning = false;
+        is_running_ = false;
+    }
+
+    Proxy::~Proxy() {
+        shutdown();
     }
 }}

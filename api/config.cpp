@@ -16,7 +16,7 @@ namespace api {
         Examples: "127.0.0.1:50001", "localhost:55000", "192.168.1.1:51234"
         @throws ConfigParseError for invalid format, IP, or port range
     */
-    pair<string, int> parseAddress(const string& addr) {
+    pair<string, int> parse_address(const string& addr) {
         // find presence of colon
         size_t colonPos = addr.find_last_of(':');
         if (colonPos == string::npos) throw ConfigParseError("Config Address is not a valid IP address, missing colon");
@@ -47,8 +47,8 @@ namespace api {
         return {ipAddr, port};
     }
 
-    ziplogConfig parseConfigJSON(const string& json_str) {
-        ziplogConfig config;
+    ZiplogConfig parse_config_JSON(const string& json_str) {
+        ZiplogConfig config;
         std::set<string> seen; // all seen addresses (for tracking duplicates between proxies/servers/subscribers)
 
         try {
@@ -75,7 +75,7 @@ namespace api {
             if (!j.contains("zipper")) {
                 throw ConfigParseError("Missing or invalid 'zipper' field");
             }
-            config.zipper = parseAddress(j["zipper"]);
+            config.zipper = parse_address(j["zipper"]);
 
             // helper to extract and validate arrays
             auto extractArray = [&](const string& field) -> vector<pair<string, int>> {
@@ -92,7 +92,7 @@ namespace api {
                     string addr = item;
                     if (seen.count(addr)) throw ConfigParseError("Duplicate address");
                     seen.insert(addr);
-                    pair<string, int> val = parseAddress(addr);
+                    pair<string, int> val = parse_address(addr);
                     result.push_back(val);
                 }
                 return result;
@@ -123,13 +123,13 @@ namespace api {
         return config;
     }
 
-    ziplogConfig parseConfig(const string& filename) {
+    ZiplogConfig parse_config(const string& filename) {
         std::ifstream file(filename);    // https://cplusplus.com/reference/fstream/ifstream/ifstream/
         if (!file.is_open()) throw ConfigParseError("Can't open file: " + filename);
 
         std::stringstream buffer;
         buffer << file.rdbuf();         // https://cplusplus.com/reference/ios/ios/rdbuf/
         file.close();
-        return parseConfigJSON(buffer.str());
+        return parse_config_JSON(buffer.str());
     }
 }}
