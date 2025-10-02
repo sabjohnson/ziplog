@@ -1,30 +1,20 @@
 #include "proxy.h"
-#include "network_utils.h"
-#include <sys/socket.h>     // socket(), connect(), send(), recv()
-#include <netinet/in.h>     // sockaddr_in, AF_INET
-#include <arpa/inet.h>      // inet_pton(), htons(), ntohs()
-#include <unistd.h>         // close()
-#include <cstring>          // memset()
 
 using namespace ziplog::api;
 
 namespace ziplog {
 namespace impl {
 
-    Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg) {
+    Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg)
+        : BaseNode(proxy_id, cfg, cfg.servers[proxy_id].first, cfg.servers[proxy_id].second)
+    {
         // validate node id
         validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
 
         // set value of members (we already know ip addr is in our valid range based on parsed config)
-        config_ = cfg;
-        shard_id_ = 0;
-        id_ = proxy_id;
-        auto [ip, p] = cfg.proxies[proxy_id];
-        ip_address_ = ip;
-        port_ = p;
         is_running_ = true;
-
         batch_size_ = 3;
+
         // epoch tracking
         //epoch_thread = thread(&Proxy::epoch_timer(), this);
     }
@@ -37,7 +27,7 @@ namespace impl {
         batch_times_.push_back(now);
         batch_values_.push_back(data);
 
-        if (batch_times_.size() < static_cast<size_t>(batch_size_)) {
+        if (batch_times_.size() < batch_size_) {
             return true;
         }
 
@@ -77,14 +67,15 @@ namespace impl {
 
             if (NetworkUtils::send_message_to_address(server_ip, server_port, msg, config_.timeout_ms, config_.max_retries)) {
                 successful_sends++;
-                std::cout << "Received ACK from server " << i << std::endl;
+                cout << "Received ACK from server " << i << endl;
             }
         }
         return successful_sends == config_.quorum();
     }
     
     void Proxy::shutdown() {
-        is_running_ = false;
+        BaseNode::shutdown();
+        cout << "Proxy shutting down" << endl;
     }
 
     Proxy::~Proxy() {

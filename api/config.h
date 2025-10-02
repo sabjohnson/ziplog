@@ -1,5 +1,5 @@
 #pragma once
-#include "common.h"
+#include "types.h"
 #include <stdexcept>
 
 namespace ziplog {
@@ -34,6 +34,22 @@ namespace api {
 
         size_t num_subscribers() const {
             return subscribers.size();
+        }
+
+
+        bool isValidProxy(NodeId id) {
+            if (id >= static_cast<NodeId>(num_proxies())) return false;
+            return true;
+        }
+
+        bool isValidServer(NodeId id) {
+            if (id >= static_cast<NodeId>(num_servers())) return false;
+            return true;
+        }
+
+        bool isValidSubscriber(NodeId id) {
+            if (id >= static_cast<NodeId>(num_subscribers())) return false;
+            return true;
         }
     };
 

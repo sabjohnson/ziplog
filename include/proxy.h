@@ -1,6 +1,5 @@
 #pragma once
-#include "config.h"
-#include "network_utils.h"
+#include "base_node.h"
 
 using namespace ziplog::api;
 
@@ -8,18 +7,10 @@ namespace ziplog {
 namespace impl {
 
    // Note: this class has mixed functionality with clients/proxies from the paper
-   class Proxy {
+   class Proxy : public BaseNode {
        private:
-            // base node
-           ZiplogConfig config_;
-           ShardId shard_id_;
-           NodeId id_;
-           string ip_address_;
-           int port_;
-           atomic<bool> is_running_;
-
             // slot allocation
-           int batch_size_;
+           size_t batch_size_;
            vector<Timestamp> batch_times_;
            vector<Command> batch_values_;
 
@@ -31,8 +22,9 @@ namespace impl {
           
        public:
            Proxy(NodeId proxy_id, const ZiplogConfig& config);
-           bool append(const Command& data);
-           void shutdown();
+           void shutdown() override;
            ~Proxy();
+
+           bool append(const Command& data);
    };
 }}

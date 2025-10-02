@@ -16,7 +16,7 @@ OBJECTS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(ALL_SOURCES))
 TEST_OBJECTS = $(filter-out $(OBJ_DIR)/impl/main.o, $(OBJECTS)) # https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
 TARGET = ziplog
 
-COMMON_HEADERS = api/common.h api/types.h api/config.h api/message.h api/network_utils.h
+COMMON_HEADERS = api/common.h api/types.h api/config.h api/message.h api/network_utils.h include/base_node.h
 
 # Build main executable
 $(TARGET): $(OBJECTS) | check_json
