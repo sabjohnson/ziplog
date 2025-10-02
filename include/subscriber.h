@@ -30,5 +30,8 @@ namespace impl {
             ~Subscriber();
 
             void print_log();
+            vector<Command> log() {
+                return log_;
+            }
     };
 }}
