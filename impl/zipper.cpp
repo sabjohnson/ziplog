@@ -1,8 +1,4 @@
 #include "zipper.h"
-#include "network_utils.h"
-#include <sys/socket.h>     // accept()
-#include <netinet/in.h>     // sockaddr_in
-#include <unistd.h>
 #include <algorithm>
 
 using namespace ziplog::api;
@@ -10,62 +6,18 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-    Zipper::Zipper(const ZiplogConfig& cfg) {
-        config_ = cfg;
-        shard_id_ = 0;
-        auto [ip, p] = cfg.zipper;
-        ip_address_ = ip;
-        port_ = p;
-        is_running_ = false;
-        
-        zipper_sock_ = -1;
-
+    Zipper::Zipper(const ZiplogConfig& cfg) :
+        BaseNode(0, cfg, cfg.zipper.first, cfg.zipper.second)
+    {
         // global sequencing state
         num_proxies_ = cfg.num_proxies();
         global_seq_num_ = 0;
 
-        running_thread_ = thread(&Zipper::run, this);
-        epoch_thread_ = thread(&Zipper::epoch_timer, this);  // inits epoch_startup_
-
+        start_listening();
+        start_epochs();
     }
 
-    void Zipper::run() {
-        if (is_running_) {
-            std::cerr << "Zipper already running" << std::endl;
-            return;
-        }
-        is_running_ = true;
-
-        // create listening socket
-        zipper_sock_ = NetworkUtils::create_listening_socket(ip_address_, port_, true);
-        if (zipper_sock_ < 0) {
-            std::cerr << "Zipper failed to create server socket" << std::endl;
-            return;
-        }
-
-        // handle connections
-        while (is_running_) {
-            struct sockaddr_in proxy_addr;
-            socklen_t proxy_len = sizeof(proxy_addr);
-
-            // accept connection
-            int proxy_socket = accept(zipper_sock_, (struct sockaddr*)&proxy_addr, &proxy_len);
-            if (proxy_socket < 0) {
-                if (is_running_) {
-                    std::cerr << "Failed to accept connection" << std::endl;
-                    continue;
-                } else {
-                    break;
-                }
-            }
-
-            // handle request in thread
-            thread proxy_thread(&Zipper::handle_proxy, this, proxy_socket);
-            proxy_thread.detach();
-        }
-    }
-
-    void Zipper::handle_proxy(int proxy_socket) {
+    void Zipper::handle_connection(int proxy_socket) {
         // read from and respond to valid request (shards match and know proxy id)
         Message req;
         if (!NetworkUtils::recv_message(proxy_socket, req)) {
@@ -73,38 +25,35 @@ namespace impl {
             return;
         }
 
-        std::cout << "Received request from proxy " << req.sender_id
-                  << " with " << req.ordering_values.size() << " timestamp(s)" << std::endl;
-
-        if (req.type == ZIP_REQUEST && req.shard_id == shard_id_ && req.sender_id < static_cast<NodeId>(num_proxies_)) {
-            // obtain lock
-            lock_guard<mutex> lock(mu_);
-
-            // take note of batch request
-            pending_requests_[req.sender_id] = {req.sender_id, req.ordering_values, proxy_socket};
-
-            // timer will handle the response
+        if (req.type == ZIP_REQUEST) {
+            update_slot_estimate(req, proxy_socket);
         } else {
             close(proxy_socket);    // signifies completion of operation
         }
     }
 
-    void Zipper::shutdown() {
-        is_running_ = false;
-        if (zipper_sock_ >= 0) {
-            ::shutdown(zipper_sock_, SHUT_RDWR);
-            close(zipper_sock_);
-            zipper_sock_ = -1;
+    void Zipper::update_slot_estimate(Message &req, int proxy_socket) {
+        // validate request
+        if (req.shard_id != shard_id_ || !config_.isValidProxy(req.sender_id)) {
+            return;
         }
+        std::cout << "Received request from proxy " << req.sender_id
+                  << " with " << req.ordering_values.size() << " timestamp(s)" << std::endl;
+
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // take note of batch request
+        pending_requests_[req.sender_id] = {req.sender_id, req.ordering_values, proxy_socket};
+    }
+
+    void Zipper::shutdown() {
+        BaseNode::shutdown();
         std::cout << "Zipper shutting down" << std::endl;
     }
 
     Zipper::~Zipper() {
         shutdown();
-        if (running_thread_.joinable()) {
-            running_thread_.join();  // wait for thread to finish
-        }
-
         if (epoch_thread_.joinable()) {
             epoch_thread_.join();
         }
@@ -113,7 +62,7 @@ namespace impl {
     void Zipper::epoch_timer() {
         epoch_startup_ = now_ms();
 
-        while (is_running_) {
+        while (running()) {
             Timestamp now = now_ms();
             Timestamp elapsed = now - epoch_startup_;
 
@@ -121,7 +70,7 @@ namespace impl {
 
             if (elapsed >= allocation_time && elapsed < (allocation_time + 10)) {
                 // allocate slots at 3/4 point
-                Zipper::allocate_slots();
+                allocate_slots();
                 std::this_thread::sleep_for(10ms);
             }
 

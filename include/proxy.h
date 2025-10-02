@@ -18,6 +18,10 @@ namespace impl {
            mutex mu_;
            thread epoch_thread_;
 
+           void start_epochs() {
+                epoch_thread_ = thread(&Proxy::epoch_timer, this);  // inits epoch_startup_
+           }
+
            void epoch_timer();
           
        public:

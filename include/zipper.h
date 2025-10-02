@@ -1,6 +1,5 @@
 #pragma once
-#include "config.h"
-#include "network_utils.h"
+#include "base_node.h"
 
 using namespace ziplog::api;
 
@@ -13,19 +12,10 @@ namespace impl {
         int proxy_socket;
     };
 
-    class Zipper {
+    class Zipper: public BaseNode {
         private:
-            // base node
-            ZiplogConfig config_;
-            ShardId shard_id_;
-            string ip_address_;
-            int port_;
-            atomic<bool> is_running_;
-
-            int zipper_sock_;
-
             // state for global sequence numbers (currently only using globalSeqNum)
-            int num_proxies_;
+            size_t num_proxies_;
             SequenceNumber global_seq_num_;
             unordered_map<NodeId, BatchRequest> pending_requests_;
 
@@ -34,17 +24,20 @@ namespace impl {
 
             // threading
             mutex mu_;
-            thread running_thread_;
             thread epoch_thread_;
 
-            void run();
+           void start_epochs() {
+                epoch_thread_ = thread(&Zipper::epoch_timer, this);  // inits epoch_startup_
+           }
+
+            void handle_connection(int proxy_socket) override;    // returns sequence numbers
             void epoch_timer();                     // looping logic for epoch timer/slot allocation
+            void update_slot_estimate(Message &msg, int proxy_socket);           // takes note of a proxies requested number of slots
             void allocate_slots();                  // sort timestamp and give global sequence numbers
-            void handle_proxy(int proxy_socket);    // returns sequence numbers
 
         public:
             Zipper(const ZiplogConfig& cfg);
-            void shutdown();
+            void shutdown() override;
             ~Zipper();
     };
 
