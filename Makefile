@@ -9,7 +9,7 @@ JSON_HEADER = third_party/json.hpp
 
 # Source files
 API_SOURCES = api/config.cpp api/message.cpp api/network_utils.cpp
-SRC_SOURCES = impl/zipper.cpp impl/proxy.cpp impl/server.cpp impl/subscriber.cpp impl/main.cpp
+SRC_SOURCES = impl/zipper.cpp impl/client.cpp impl/proxy.cpp impl/server.cpp impl/subscriber.cpp impl/main.cpp
 
 ALL_SOURCES = $(API_SOURCES) $(SRC_SOURCES)
 OBJECTS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(ALL_SOURCES))

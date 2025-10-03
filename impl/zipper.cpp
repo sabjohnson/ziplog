@@ -34,7 +34,7 @@ namespace impl {
 
     void Zipper::update_slot_estimate(Message &req, int proxy_socket) {
         // validate request
-        if (req.shard_id != shard_id_ || !config_.isValidProxy(req.sender_id)) {
+        if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id)) {
             return;
         }
         std::cout << "Received request from proxy " << req.sender_id
@@ -53,6 +53,7 @@ namespace impl {
     }
 
     Zipper::~Zipper() {
+        epoch_running_ = false;
         shutdown();
         if (epoch_thread_.joinable()) {
             epoch_thread_.join();
@@ -60,9 +61,10 @@ namespace impl {
     }
 
     void Zipper::epoch_timer() {
+        epoch_running_ = true;
         epoch_startup_ = now_ms();
 
-        while (running()) {
+        while (epoch_running_) {
             Timestamp now = now_ms();
             Timestamp elapsed = now - epoch_startup_;
 
@@ -122,7 +124,7 @@ namespace impl {
 
             Message resp;
             resp.type = ZIP_RESPONSE;
-            resp.shard_id = shard_id_;
+            resp.shard_id = shard();
             resp.set_num_requests(static_cast<SequenceNumber>(values.size()));
             resp.set_assigned_sequences(values);
 

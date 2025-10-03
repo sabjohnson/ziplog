@@ -6,7 +6,6 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-   // Note: this class has mixed functionality with clients/proxies from the paper
    class Proxy : public BaseNode {
        private:
             // slot allocation
@@ -14,21 +13,15 @@ namespace impl {
            vector<Timestamp> batch_times_;
            vector<Command> batch_values_;
 
-           // threading
-           mutex mu_;
-           thread epoch_thread_;
-
-           void start_epochs() {
-                epoch_thread_ = thread(&Proxy::epoch_timer, this);  // inits epoch_startup_
-           }
-
            void epoch_timer();
+
+           void handle_connection(int client_socket) override;
+           bool handle_append(const Command& data);
+           bool replicate_on_quorum(Message& msg);
           
        public:
            Proxy(NodeId proxy_id, const ZiplogConfig& config);
            void shutdown() override;
            ~Proxy();
-
-           bool append(const Command& data);
    };
 }}

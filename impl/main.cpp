@@ -1,6 +1,7 @@
 #include "common.h"
 #include "config.h"
 #include "zipper.h"
+#include "client.h"
 #include "proxy.h"
 #include "server.h"
 #include "subscriber.h"
@@ -16,12 +17,13 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: <mode> <config_file> [id]" << std::endl;
         std::cerr << "Modes:" << std::endl;
         std::cerr << "  zipper              - no ID required" << std::endl;
+        std::cerr << "  client <proxy_id>   - ID required" << std::endl;
         std::cerr << "  proxy <id>          - ID required" << std::endl;
         std::cerr << "  server <id>         - ID required" << std::endl;
         std::cerr << "  subscriber <id>     - ID required" << std::endl;
         std::cerr << "\nExamples:" << std::endl;
         std::cerr << "  " << argv[0] << " zipper config/servers.json" << std::endl;
-        std::cerr << "  " << argv[0] << " proxy config/servers.json 0" << std::endl;
+        std::cerr << "  " << argv[0] << " proxy config/servers2.json 0" << std::endl;
         return ERROR;
     }
 
@@ -41,6 +43,21 @@ int main(int argc, char* argv[]) {
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
+        } else if (mode == "client") {
+            if (!id.has_value()) {
+                std::cerr << "Client mode requires an proxy ID to contact" << std::endl;
+                return ERROR;
+            }
+            Client client(config, *id);
+
+            // read from stdin and send appends
+            std::cout << "Type string value to send APPENDs and hit Enter. Enter 'quit' to shutdown..." << std::endl;
+            string line;
+            while (std::getline(std::cin, line)) {
+                if (line == "quit") break;
+                bool success = client.append(line);
+                std::cout << (success ? "Sent successfully" : "Send failed") << std::endl;
+            }
         } else if (mode == "proxy") {
             if (!id.has_value()) {
                 std::cerr << "Proxy mode requires an ID" << std::endl;
@@ -48,14 +65,9 @@ int main(int argc, char* argv[]) {
             }
             Proxy proxy(*id, config);
             
-            // read from stdin and send appends
-            std::cout << "Type string value to send APPENDs and hit Enter. Enter 'quit' to shutdown..." << std::endl;
-            string line;
-            while (std::getline(std::cin, line)) {
-                if (line == "quit") break;
-                bool success = proxy.append(line);
-                std::cout << (success ? "Sent successfully" : "Send failed") << std::endl;
-            }
+            // keep alive until user presses Enter
+            std::cout << "Press Enter to shutdown..." << std::endl;
+            std::cin.get();
         } else if (mode == "server") {
             if (!id.has_value()) {
                 std::cerr << "Server mode requires an ID" << std::endl;

@@ -24,11 +24,12 @@ namespace impl {
 
             // threading
             mutex mu_;
+            atomic<bool> epoch_running_;
             thread epoch_thread_;
 
-           void start_epochs() {
+            void start_epochs() {
                 epoch_thread_ = thread(&Zipper::epoch_timer, this);  // inits epoch_startup_
-           }
+            }
 
             void handle_connection(int proxy_socket) override;    // returns sequence numbers
             void epoch_timer();                     // looping logic for epoch timer/slot allocation

@@ -7,7 +7,9 @@ namespace api {
 
     // Message type for all servers
     enum MessageTypes : uint32_t {
-        APPEND,         // proxy to server OR server to subscriber
+        APPEND,         // client to proxy, proxy to server OR server to subscriber
+        SUCCESS,
+        FAILURE,
         ACK,            // subscriber to server OR server to proxy
         ZIP_REQUEST,    // proxy to zipper
         ZIP_RESPONSE,   // zipper to proxy

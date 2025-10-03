@@ -34,7 +34,7 @@ namespace impl {
             // send response (default to ack for now)
             Message ack_msg;
             ack_msg.type = ACK;
-            ack_msg.shard_id = shard_id_;
+            ack_msg.shard_id = shard();
             ack_msg.sender_id = id_;
             ack_msg.seq_or_count = msg.seq_or_count;
             
@@ -50,7 +50,7 @@ namespace impl {
 
     void Server::broadcast_to_subscribers(const Message &msg) {
         // verify validity of sender (valid proxy)
-        if (msg.shard_id != shard_id_ || !config_.isValidProxy(msg.sender_id)) {
+        if (msg.shard_id != shard() || !config_.isValidProxy(msg.sender_id)) {
             return;
         }
 
