@@ -84,7 +84,7 @@ namespace impl {
     void Subscriber::print_log() {
         cout << "Current log..." << endl;
         for (size_t i = 0; i < log_.size(); i++) {
-            cout << "Index " << i << ": " << log_[i] << endl;
+            cout << "Index " << i << ": " << string(log_[i].begin(), log_[i].end()) << endl;
         }
     }
     

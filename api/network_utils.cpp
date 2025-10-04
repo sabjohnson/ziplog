@@ -1,8 +1,5 @@
 #include "network_utils.h"
 #include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <cstring>
 
 namespace ziplog {
 namespace api {
