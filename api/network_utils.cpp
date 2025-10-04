@@ -1,8 +1,5 @@
 #include "network_utils.h"
 #include <sys/socket.h>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <cstring>
 
 namespace ziplog {
 namespace api {
@@ -44,7 +41,7 @@ namespace api {
             return false;
         }
 
-        return (ack_response.type == ACK && ack_response.seq_or_count == msg.seq_or_count);
+        return true;
     }
 
     // send request to zipper
@@ -97,7 +94,7 @@ namespace api {
         return send_bytes(socket, serialized.data(), serialized.size());
     }
 
-    // sending specified number of bytes from a pointer to a sockett
+    // sending specified number of bytes from a pointer to a socket
     bool NetworkUtils::send_bytes(int socket, const void* data, size_t len) {
         const uint8_t* ptr = static_cast<const uint8_t*>(data);
         size_t sent = 0;

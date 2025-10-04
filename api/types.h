@@ -10,7 +10,53 @@ namespace api {
     using NodeId = uint32_t;
     using SequenceNumber = uint64_t;
     using Timestamp = uint64_t;
-    using Command = string;
+    using Command = vector<uint8_t>;
+
+
+    class CommandBatch {
+    private:
+        Command buffer_;
+
+    public:
+        void add_command(const Command& cmd) {
+            uint32_t len = htonl(cmd.size());
+            buffer_.insert(buffer_.end(), reinterpret_cast<const uint8_t*>(&len), reinterpret_cast<const uint8_t*>(&len) + 4);
+            buffer_.insert(buffer_.end(), cmd.begin(), cmd.end());
+        }
+
+        void add_command(const string& cmd) {
+            add_command(Command(cmd.begin(), cmd.end()));
+        }
+
+        Command serialize() const {
+            return buffer_;
+        }
+
+        static vector<Command> deserialize(const Command& data) {
+            vector<Command> commands;
+            size_t offset = 0;
+
+            while (offset < data.size()) {
+                // read length
+                if (offset + 4 > data.size()) break;
+
+                uint32_t net_len;
+                memcpy(&net_len, data.data() + offset, 4);
+                uint32_t len = ntohl(net_len);
+                offset += 4;
+
+                if (offset + len > data.size()) break;
+
+                // read command and append command to vector
+                commands.emplace_back(data.begin() + offset, data.begin() + offset + len);
+                offset += len;
+            }
+
+            return commands;
+        }
+
+
+    };
 
     /*
         @return: Timestamp representing current time.

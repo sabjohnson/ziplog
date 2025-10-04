@@ -62,7 +62,7 @@ namespace api {
                       reinterpret_cast<const uint8_t*>(&net_seq) + 8);
         
         // add data length (4 bytes)
-        uint32_t data_len = htonl(static_cast<uint32_t>(data.length()));
+        uint32_t data_len = htonl(static_cast<uint32_t>(data.size()));
         buffer.insert(buffer.end(),
                       reinterpret_cast<const uint8_t*>(&data_len),
                       reinterpret_cast<const uint8_t*>(&data_len) + 4);
@@ -131,7 +131,7 @@ namespace api {
         }
         
         // read data
-        msg.data = string(buffer.begin() + offset, buffer.begin() + offset + data_len);
+        msg.data = Command(buffer.begin() + offset, buffer.begin() + offset + data_len);
         offset += data_len;
 
         // read ordering values length

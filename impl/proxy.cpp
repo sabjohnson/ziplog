@@ -1,9 +1,15 @@
 #include "proxy.h"
+#include <math.h>
 
 using namespace ziplog::api;
 
 namespace ziplog {
 namespace impl {
+
+
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Construction/Deconstruction
+     ----------------------------------------------------------------------------------------------------------------------- */
 
     Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg)
         : BaseNode(proxy_id, cfg, cfg.proxies[proxy_id].first, cfg.proxies[proxy_id].second)
@@ -12,12 +18,39 @@ namespace impl {
         validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
 
         // set value of members (we already know ip addr is in our valid range based on parsed config)
-        batch_size_ = 3;
-        start_listening();
+        request_count_ = 0;
+        cur_sequences_size_ = 0;
+        next_sequences_size_ = 0;
+        BATCH_INTERVAL = EPOCH_DURATION_MS;
 
-        // epoch tracking
-        //epoch_thread = thread(&Proxy::epoch_timer(), this);
+
+        start_listening();
+        start_epochs();
     }
+
+    void Proxy::shutdown() {
+        BaseNode::shutdown();
+
+        cout << "Proxy shutting down" << endl;
+    }
+
+    Proxy::~Proxy() {
+        epoch_running_ = false;
+        if (epoch_thread_.joinable()) {
+            epoch_thread_.join();
+        }
+
+        lock_guard<mutex> lock(mu_);
+        for (int client : client_sockets_) {
+            close(client);
+        }
+
+        shutdown();
+    }
+
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Message Passing
+     ----------------------------------------------------------------------------------------------------------------------- */
 
     void Proxy::handle_connection(int client_socket) {
         // read from and respond to valid request
@@ -26,68 +59,41 @@ namespace impl {
             close(client_socket);
             return;
         }
-        cout << "received smthn" << endl;
-
-        bool success = false;
-        if (req.type == APPEND) {
-            cout << "append" << endl;
-            success = handle_append(req.data);
-        }
 
         // build and send response
         Message resp;
-        resp.type = FAILURE;
+        resp.type = ACK;
 
-        if (success) {
-            resp.type = SUCCESS;
+        if (req.type == APPEND) {
+            handle_append(client_socket, req.data);
+            return;
+
+        } else if (req.type == ZIP_RESPONSE) {
+            handle_zip_response(req);
+
         }
 
+        // send response
         NetworkUtils::send_message(client_socket, resp);
         close(client_socket);
     }
 
-    bool Proxy::handle_append(const Command& data) {
+    void Proxy::handle_append(int client_socket, const Command& data) {
         // get current timestamp
         Timestamp now = now_ms();
 
-        // add timestamp and data to batch
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // add timestamp and data to pending request trackers
         batch_times_.push_back(now);
         batch_values_.push_back(data);
 
-        if (batch_times_.size() < batch_size_) {
-            return true;
-        }
+        // increment number of requests
+        request_count_++;
 
-        // build request to zipper
-        Message zip_req;
-        zip_req.type = ZIP_REQUEST;
-        zip_req.shard_id = shard();
-        zip_req.sender_id = id_;
-        zip_req.set_num_requests(batch_size_);
-        zip_req.set_timestamps(batch_times_);
-
-        Message zip_resp;
-        if (!NetworkUtils::request_from_zipper(config_.zipper.first, config_.zipper.second, zip_req, zip_resp, config_.timeout_ms, config_.max_retries)) {
-            return false;
-        }
-
-        if (zip_resp.get_assigned_sequences().empty()) {
-            std::cerr << "Zipper returned no sequence numbers" << std::endl;
-            return false;
-        }
-
-        batch_times_.clear();
-        batch_values_.clear();
-
-        // create msg to be broadcasted
-        Message msg;
-        msg.type = APPEND;
-        msg.shard_id = shard();
-        msg.sender_id = id();
-        msg.seq_or_count = zip_resp.get_assigned_sequences()[0];
-        msg.data = data;
-
-        return replicate_on_quorum(msg);
+        // take note of client socket (respond after its replicated during epoch interval)
+        client_sockets_.push_back(client_socket);
     }
 
     // attempt to replicate on f + 1 storage servers
@@ -102,13 +108,146 @@ namespace impl {
         }
         return successful_sends == config_.quorum();
     }
-    
-    void Proxy::shutdown() {
-        BaseNode::shutdown();
-        cout << "Proxy shutting down" << endl;
+
+    void Proxy::handle_zip_response(Message& msg) {
+        // validate zip response
+        if (msg.shard_id != shard()) return;
+
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // take note of number of allocated slots
+        next_sequences_size_ = msg.get_num_requests();
+
+        // add new sequence numbers to your pool
+        sequences_.insert(sequences_.end(), msg.ordering_values.begin(), msg.ordering_values.end());
     }
 
-    Proxy::~Proxy() {
-        shutdown();
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Epoch handling
+     ----------------------------------------------------------------------------------------------------------------------- */
+
+    void Proxy::epoch_timer() {
+        epoch_running_ = true;
+        epoch_startup_ = now_ms();
+        Timestamp interval_startup = epoch_startup_;
+
+        while (epoch_running_) {
+            Timestamp now = now_ms();
+            Timestamp elapsed = now - epoch_startup_;               // time since epoch startup
+            Timestamp elapsed_interval = now - interval_startup;    // time since interval startup
+
+            if (elapsed >= EPOCH_DURATION_MS) { // full epoch elapsed
+                // restart state
+                epoch_startup_ = now_ms();
+                update_slot_estimate();
+                set_up_batch_intervals();
+
+            } else if (elapsed_interval > BATCH_INTERVAL) { // full interval elapsed
+                interval_startup = now_ms();
+                send_out_batch();
+
+            }
+
+            std::this_thread::sleep_for(5ms);
+        }
     }
+
+    void Proxy::update_slot_estimate() {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
+        estimate_history_.push_back(request_count_);
+        if (estimate_history_.size() > MAX_EPOCH_HISTORY) {
+            estimate_history_.pop_front();
+        }
+        SequenceNumber avg = 0;
+        for (auto est : estimate_history_) {
+            avg += est;
+        }
+
+        // update your value
+        SequenceNumber slot_estimate_ = estimate_history_.empty() ? 0 : static_cast<SequenceNumber>(ceil(avg / estimate_history_.size()));
+
+        // send to zipper
+        Message zip_req;
+        zip_req.type = ZIP_REQUEST;
+        zip_req.shard_id = shard();
+        zip_req.sender_id = id();
+        zip_req.set_num_requests(slot_estimate_);
+        zip_req.set_timestamps(batch_times_);
+
+        NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, config_.timeout_ms, config_.max_retries);
+
+        // reset trackers
+        batch_times_.clear();
+        request_count_ = 0;
+    }
+
+    void Proxy::set_up_batch_intervals() {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // update the intervals we will be working at
+        cur_sequences_size_ = next_sequences_size_;
+        next_sequences_size_ = 0;
+
+        if (cur_sequences_size_ > 0) {
+            BATCH_INTERVAL = EPOCH_DURATION_MS / cur_sequences_size_;
+        } else {
+            BATCH_INTERVAL = EPOCH_DURATION_MS;
+            cout << "Zipper did not allocate slots for proxy " << id() << " this epoch" << endl;
+        }
+    }
+
+    void Proxy::send_out_batch() {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // don't send anything out if you don't have any sequence numbers
+        if (sequences_.empty()) return;
+
+        // build message
+        Message msg;
+        msg.type = APPEND;
+        msg.seq_or_count = sequences_.front();
+
+        // add commands to batch
+        CommandBatch batch;
+
+        if (!batch_values_.empty()) {
+            // commands to send
+            for (const auto& cmd : batch_values_) {
+                batch.add_command(cmd);
+            }
+        } else {
+            // no commands to send (send skip)
+            msg.type = SKIP;
+        }
+
+        msg.data = batch.serialize();
+
+        // send out batch
+        bool success = replicate_on_quorum(msg);
+
+        // respond to clients
+        Message resp;
+        resp.type = SUCCESS;
+
+        if (!success) {
+            resp.type = FAILURE;
+        }
+
+        for (int client : client_sockets_) {
+            NetworkUtils::send_message(client, resp);
+            close(client);
+        }
+
+        // clear pending commands/client sockets (they have now been handled)
+        sequences_.pop_front();
+        batch_values_.clear();
+        client_sockets_.clear();
+    }
+
 }}

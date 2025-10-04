@@ -17,7 +17,7 @@ namespace impl {
             // state for global sequence numbers (currently only using globalSeqNum)
             size_t num_proxies_;
             SequenceNumber global_seq_num_;
-            unordered_map<NodeId, BatchRequest> pending_requests_;
+            unordered_map<NodeId, SequenceNumber> proxy_estimates_;
 
             // epoch tracking
             Timestamp epoch_startup_;
@@ -33,7 +33,7 @@ namespace impl {
 
             void handle_connection(int proxy_socket) override;    // returns sequence numbers
             void epoch_timer();                     // looping logic for epoch timer/slot allocation
-            void update_slot_estimate(Message &msg, int proxy_socket);           // takes note of a proxies requested number of slots
+            void update_slot_estimate(Message &msg);           // takes note of a proxies requested number of slots
             void allocate_slots();                  // sort timestamp and give global sequence numbers
 
         public:

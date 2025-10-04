@@ -17,6 +17,10 @@
 #include <iostream>
 #include <optional>
 
+#include <arpa/inet.h>  // htonl/ntohl
+#include <cstring>      // memcpy
+#include <unistd.h>
+
 // commonly used types in implementation files
 using std::string;
 using std::vector;
@@ -44,4 +48,5 @@ namespace ziplog {
     // constants
     static constexpr uint32_t MAX_MESSAGE_SIZE = 65535;     // 2 ^ 16... 2 bytes read in for message header on tcp connection
     static constexpr uint64_t EPOCH_DURATION_MS = 9000;     // keep this at a multiple of 10
+    static constexpr uint64_t MAX_EPOCH_HISTORY = 10;
 }

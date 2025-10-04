@@ -8,6 +8,7 @@ namespace api {
     // Message type for all servers
     enum MessageTypes : uint32_t {
         APPEND,         // client to proxy, proxy to server OR server to subscriber
+        SKIP,
         SUCCESS,
         FAILURE,
         ACK,            // subscriber to server OR server to proxy
@@ -20,7 +21,7 @@ namespace api {
         ShardId shard_id;
         NodeId sender_id;                           // index of address in config
         SequenceNumber seq_or_count;                // log index (APPEND) or num of slots (ZIP_REQUEST)
-        Command data;                               // data being appended in log (APPEND)
+        Command data;                               // data being appended in log (APPEND). may be a batch
         vector<SequenceNumber> ordering_values;     // timestamps (ZIP_REQUEST) or sequence numbers (ZIP_RESPONSE)
 
         // Serialization methods

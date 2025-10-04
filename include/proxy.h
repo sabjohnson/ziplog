@@ -1,22 +1,50 @@
 #pragma once
 #include "base_node.h"
+#include <deque>
 
 using namespace ziplog::api;
+using std::deque;
 
 namespace ziplog {
 namespace impl {
 
    class Proxy : public BaseNode {
        private:
-            // slot allocation
-           size_t batch_size_;
-           vector<Timestamp> batch_times_;
-           vector<Command> batch_values_;
+           // slot allocation
+           SequenceNumber request_count_;           // how many requests a proxy received during this epoch
+           deque<SequenceNumber> estimate_history_; // dequeue of request_count for the last couple epochs
+
+           // sequence numbers and interval scheduling
+           size_t cur_sequences_size_;              // number of sequence numbers allocated this epoch
+           size_t next_sequences_size_;             // number of sequence numbers allocated next epoch
+           deque<SequenceNumber> sequences_;      // sequence numbers allocated
+           uint32_t BATCH_INTERVAL;
+
+           // client request information (timestamps and data)
+           vector<Timestamp> batch_times_;         // the time proxy received a client request
+           deque<Command> batch_values_;          // the actual command
+           deque<int> client_sockets_;              // so you can respond after sending batch
+
+           // epoch tracking
+           Timestamp epoch_startup_;
+
+           // threading
+           mutex mu_;
+           atomic<bool> epoch_running_;
+           thread epoch_thread_;
+
+           void start_epochs() {
+                epoch_thread_ = thread(&Proxy::epoch_timer, this);
+           }
 
            void epoch_timer();
+           void update_slot_estimate();
+           void set_up_batch_intervals();
+           void send_out_batch();
 
            void handle_connection(int client_socket) override;
-           bool handle_append(const Command& data);
+           void handle_zip_response(Message& msg);
+           void handle_append(int client_socket, const Command& data);
            bool replicate_on_quorum(Message& msg);
           
        public:
