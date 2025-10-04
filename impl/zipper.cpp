@@ -13,6 +13,12 @@ namespace impl {
         num_proxies_ = cfg.num_proxies();
         global_seq_num_ = 0;
 
+        // initialize proxy estimate tracker
+        for (NodeId i = 0; i < num_proxies_; i++) {
+            proxy_estimates_[i] = 0;
+        }
+
+        // start running
         start_listening();
         start_epochs();
     }
@@ -26,49 +32,51 @@ namespace impl {
         }
 
         if (req.type == ZIP_REQUEST) {
-            update_slot_estimate(req, proxy_socket);
-        } else {
-            close(proxy_socket);    // signifies completion of operation
+            update_slot_estimate(req);
         }
+
+        Message resp;
+        resp.type = ACK;
+        NetworkUtils::send_message(proxy_socket, resp);
+        close(proxy_socket);
     }
 
-    void Zipper::update_slot_estimate(Message &req, int proxy_socket) {
+    void Zipper::update_slot_estimate(Message &req) {
         // validate request
         if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id)) {
             return;
         }
-        std::cout << "Received request from proxy " << req.sender_id
-                  << " with " << req.ordering_values.size() << " timestamp(s)" << std::endl;
+        cout << "Received request from proxy " << req.sender_id << " with " << req.seq_or_count << " timestamp(s)" << endl;
 
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        // take note of batch request
-        pending_requests_[req.sender_id] = {req.sender_id, req.ordering_values, proxy_socket};
+        // take note of number fo requests
+        proxy_estimates_[req.sender_id] = req.seq_or_count;
     }
 
     void Zipper::shutdown() {
         BaseNode::shutdown();
-        std::cout << "Zipper shutting down" << std::endl;
+        cout << "Zipper shutting down" << endl;
     }
 
     Zipper::~Zipper() {
         epoch_running_ = false;
-        shutdown();
         if (epoch_thread_.joinable()) {
             epoch_thread_.join();
         }
+        shutdown();
     }
 
     void Zipper::epoch_timer() {
         epoch_running_ = true;
         epoch_startup_ = now_ms();
 
+        const Timestamp allocation_time = (EPOCH_DURATION_MS * 3) / 4;
+
         while (epoch_running_) {
             Timestamp now = now_ms();
             Timestamp elapsed = now - epoch_startup_;
-
-            const Timestamp allocation_time = (EPOCH_DURATION_MS * 3) / 4;
 
             if (elapsed >= allocation_time && elapsed < (allocation_time + 10)) {
                 // allocate slots at 3/4 point
@@ -89,20 +97,19 @@ namespace impl {
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        std::cout << "Allocating slots for " << pending_requests_.size() << " requests" << std::endl;
+        vector<pair<double, NodeId>> timestamps;    // vector or {timestamp, proxy_id}
 
-        if (pending_requests_.empty()) return;
+        for (const auto& [proxy_id, estimate] : proxy_estimates_) {
+            if (estimate == 0) continue;
 
-        unordered_map<NodeId, int> proxy_sockets;  // id > socket
-        vector<pair<Timestamp, NodeId>> timestamps;    // vector or {timestamp, proxy_id}
+            double interval = EPOCH_DURATION_MS / estimate;
+            double time_point = interval / 2;
+            int count = estimate;
 
-        for (const auto& [proxy_id, batch] : pending_requests_) {
-            // store connector socket
-            proxy_sockets[proxy_id] = batch.proxy_socket;
-
-            // add all timestamps
-            for (const auto& timestamp : batch.ordering_values) {
-                timestamps.push_back({timestamp, proxy_id});
+            while (count) {
+                timestamps.push_back({time_point, proxy_id});
+                time_point += interval;
+                count--;
             }
         }
 
@@ -119,8 +126,6 @@ namespace impl {
 
         // respond to all in this epoch
         for (const auto& [proxy_id, values] : proxy_sequence_numbers) {
-            // get proxy socket
-            int recipient = proxy_sockets[proxy_id];
 
             Message resp;
             resp.type = ZIP_RESPONSE;
@@ -128,8 +133,8 @@ namespace impl {
             resp.set_num_requests(static_cast<SequenceNumber>(values.size()));
             resp.set_assigned_sequences(values);
 
-            NetworkUtils::send_message(recipient, resp);
-            close(recipient);
+            auto& [proxy_ip, proxy_port] = config_.proxies[proxy_id];
+            NetworkUtils::send_message_to_address(proxy_ip, proxy_port, resp, config_.timeout_ms, config_.max_retries);
 
             std::cout << "proxy " << proxy_id << " : [";
             for (size_t i = 0; i < values.size(); ++i) {
@@ -140,7 +145,5 @@ namespace impl {
         }
         std::cout << "----------------------------------------------------------------------" << std::endl;
 
-        // clear batch requests for this epoch
-        pending_requests_.clear();
     }
 }}
