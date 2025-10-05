@@ -60,7 +60,9 @@ namespace impl {
             // create listening socket
             sock_ = NetworkUtils::create_listening_socket(ip_address_, port_, true);
             if (sock_ < 0) {
-                std::cerr << "failed to create server socket" << std::endl;
+                //std::cerr << "failed to create server socket" << std::endl;
+                cerr << "failed to create server socket on " << ip_address_ << ":" << port_
+                    << " - " << strerror(errno) << std::endl;
                 return;
             }
 

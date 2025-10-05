@@ -27,7 +27,7 @@ namespace impl {
                       << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << std::endl;
 
             // process message
-            if (msg.type == APPEND) {
+            if (msg.type == APPEND || msg.type == SKIP) {
                 broadcast_to_subscribers(msg);
             }
             
@@ -51,11 +51,13 @@ namespace impl {
     void Server::broadcast_to_subscribers(const Message &msg) {
         // verify validity of sender (valid proxy)
         if (msg.shard_id != shard() || !config_.isValidProxy(msg.sender_id)) {
+            cout << "invalid proxy: " << msg.sender_id << endl;
             return;
         }
 
+        cout << "Server broadcasting ---------------------------------" << endl;
         Message fwd_msg = msg;
-        fwd_msg.sender_id = id_;
+        fwd_msg.sender_id = id();
 
         for (size_t i = 0; i < config_.num_subscribers(); i++) {
             auto [subscriber_ip, subscriber_port] = config_.subscribers[i];

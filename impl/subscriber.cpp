@@ -6,7 +6,7 @@ namespace ziplog {
 namespace impl {
 
     Subscriber::Subscriber(NodeId subscriber_id, const ZiplogConfig &cfg)
-        : BaseNode(subscriber_id, cfg, cfg.servers[subscriber_id].first, cfg.servers[subscriber_id].second)
+        : BaseNode(subscriber_id, cfg, cfg.subscribers[subscriber_id].first, cfg.subscribers[subscriber_id].second)
     {
         // validate node id
         validate_node_id(subscriber_id, cfg.num_subscribers(), "Subscriber");
@@ -25,7 +25,7 @@ namespace impl {
             }
 
             // process message
-            if (msg.type == APPEND) {
+            if (msg.type == APPEND || msg.type == SKIP) {
                 process_for_quorum(msg);
             }
             
@@ -44,7 +44,8 @@ namespace impl {
     
     void Subscriber::process_for_quorum(const Message &msg) {
         // verify validity of sender (note: don't compare shards because "subscribers consume records from one or more shards" pg. 4)
-        if (config_.isValidServer(msg.sender_id)) {
+        if (!config_.isValidServer(msg.sender_id)) {
+            cout << "invalid server: " << msg.sender_id << endl;
             return;
         }
         cout << "Subscriber " << id() << " received message from server " << msg.sender_id
@@ -71,14 +72,16 @@ namespace impl {
     
     void Subscriber::apply_operation(const Message &msg) {
         // store sequence number and command
-        out_of_order_[msg.seq_or_count] = msg.data;
+        out_of_order_[msg.get_sequence_number()] = msg.data;
 
         // add all available consecutive commands
         while (out_of_order_.count(next_seq_)) {
+            cout << "ADDED TO LOG --------------------------------------------" << endl;
             log_.push_back(out_of_order_[next_seq_]);
             out_of_order_.erase(next_seq_);
             next_seq_++;
         }
+        print_log();
     }
 
     void Subscriber::print_log() {

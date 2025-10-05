@@ -55,8 +55,8 @@ namespace api {
                       reinterpret_cast<const uint8_t*>(&net_sender_id),
                       reinterpret_cast<const uint8_t*>(&net_sender_id) + 4);
         
-        // add sequence_number/count (4 bytes)
-        uint32_t net_seq = htonll(seq_or_count);
+        // add sequence_number/count (8 bytes)
+        uint64_t net_seq = htonll(seq_or_count);
         buffer.insert(buffer.end(),
                       reinterpret_cast<const uint8_t*>(&net_seq),
                       reinterpret_cast<const uint8_t*>(&net_seq) + 8);

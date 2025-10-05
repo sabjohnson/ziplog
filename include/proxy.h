@@ -20,8 +20,7 @@ namespace impl {
            deque<SequenceNumber> sequences_;      // sequence numbers allocated
            uint32_t BATCH_INTERVAL;
 
-           // client request information (timestamps and data)
-           vector<Timestamp> batch_times_;         // the time proxy received a client request
+           // client request information (commands and sockets)
            deque<Command> batch_values_;          // the actual command
            deque<int> client_sockets_;              // so you can respond after sending batch
 
