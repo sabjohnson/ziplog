@@ -7,11 +7,11 @@
 
 /*
     * all tests are using one shard *
-    number of   clients proxies servers subscribers
-    setup1:     1       1       1       1
-    setup2:     2       1       1       1
-    setup3:     2       1       1       2
-    setup4:     2       1       2       2
+    number of   clients proxies servers subscribers config_file
+    setup1:     1       1       1       1           setup1.json
+    setup2:     2       1       1       1           setup1.json (make clients manually)
+    setup3:     2       1       1       2           setup3.json (make clients manually)
+    setup4:     2       1       2       2           setup4.json (make clients manually)
 */
 
 using namespace ziplog::api;
@@ -180,4 +180,91 @@ TEST_F(E2ETest, Setup1_SingleAppendThreeEpochs) {
     for (int i = 0; i < 3; i++) {
         verify_index_matches_expected(log[i], expected);  // output commands, expected strings
     }
+}
+
+TEST_F(E2ETest, Setup1_TwoClientsSingleAppend) {
+    StartSystem("config/setup1.json");
+
+    //
+    std::thread t1([&]() {
+        auto c0 = std::make_unique<Client>(config, 0);
+        ASSERT_TRUE(c0->append(string_to_command("client 0")));
+    });
+    std::thread t2([&]() {
+        auto c1 = std::make_unique<Client>(config, 0);
+        ASSERT_TRUE(c1->append(string_to_command("client 1")));
+    });
+
+    t1.join(); t2.join();
+
+    wait_for_propagation();
+
+    const auto& original_log = subscribers[0]->log();
+    vector<vector<Command>> log = expand_log(original_log);
+
+    // verify log size
+    ASSERT_EQ(log.size(), 1);
+
+    // verify the presence of
+    unordered_map<string, bool> expected;
+    expected["client 0"] = true;
+    expected["client 1"] = true;
+
+    for (const Command& cmd : log[0]) {
+        const string& cmd_str = command_to_string(cmd);
+        if (expected.count(cmd_str)) expected.erase(cmd_str);
+    }
+
+    ASSERT_EQ(expected.empty(), true);
+}
+
+
+TEST_F(E2ETest, Setup1_TwoClientsSingleAppendTwoEpochs) {
+    StartSystem("config/setup1.json");
+
+    //
+    std::thread t1([&]() {
+        auto c0 = std::make_unique<Client>(config, 0);
+        ASSERT_TRUE(c0->append(string_to_command("0,0")));
+        wait_for_propagation(1);
+        ASSERT_TRUE(c0->append(string_to_command("0,1")));
+    });
+    std::thread t2([&]() {
+        auto c1 = std::make_unique<Client>(config, 0);
+        ASSERT_TRUE(c1->append(string_to_command("1,0")));
+        wait_for_propagation(1);
+        ASSERT_TRUE(c1->append(string_to_command("1,1")));
+    });
+
+    t1.join(); t2.join();
+
+    wait_for_propagation();
+
+    const auto& original_log = subscribers[0]->log();
+    vector<vector<Command>> log = expand_log(original_log);
+
+    // verify log size
+    ASSERT_EQ(log.size(), 2);
+
+    // verify the presence of
+    unordered_map<string, bool> expected;
+    expected["0,0"] = true;
+    expected["1,0"] = true;
+
+    for (const Command& cmd : log[0]) {
+        const string& cmd_str = command_to_string(cmd);
+        if (expected.count(cmd_str)) expected.erase(cmd_str);
+    }
+
+    ASSERT_EQ(expected.empty(), true);
+
+    expected["0,1"] = true;
+    expected["1,1"] = true;
+
+    for (const Command& cmd : log[1]) {
+        const string& cmd_str = command_to_string(cmd);
+        if (expected.count(cmd_str)) expected.erase(cmd_str);
+    }
+
+    ASSERT_EQ(expected.empty(), true);
 }
