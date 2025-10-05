@@ -18,6 +18,10 @@ TARGET = ziplog
 
 COMMON_HEADERS = api/common.h api/types.h api/config.h api/message.h api/network_utils.h include/base_node.h
 
+# Test information
+TEST_LIBS = -lgtest -lgtest_main -lpthread
+TEST_RUNNER = test_runner
+
 # Build main executable
 $(TARGET): $(OBJECTS) | check_json
 	$(CXX) $(OBJECTS) -o $(TARGET)
@@ -52,11 +56,10 @@ external_clean: clean
 
 # Build test target
 test_build: $(TEST_OBJECTS) | check_json
-	$(CXX) $(CXXFLAGS) $(INCLUDES) tests/*.cpp $(TEST_OBJECTS) -o test_runner
+	$(CXX) $(CXXFLAGS) $(INCLUDES) tests/*.cpp $(TEST_OBJECTS) $(TEST_LIBS) -o $(TEST_RUNNER)
 
 # Build and run test target
-test: $(TEST_OBJECTS) | check_json
-	$(CXX) $(CXXFLAGS) $(INCLUDES) tests/*.cpp $(TEST_OBJECTS) -o test_runner
+test: test_build
 	./test_runner
 
 .PHONY: clean external_clean test test_build check_json download_json

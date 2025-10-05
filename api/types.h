@@ -12,6 +12,13 @@ namespace api {
     using Timestamp = uint64_t;
     using Command = vector<uint8_t>;
 
+    inline Command string_to_command(const string& s) {
+        return Command(s.begin(), s.end());
+    }
+
+    inline string command_to_string(const Command& cmd) {
+        return string(cmd.begin(), cmd.end());
+    }
 
     class CommandBatch {
     private:
@@ -22,10 +29,6 @@ namespace api {
             uint32_t len = htonl(cmd.size());
             buffer_.insert(buffer_.end(), reinterpret_cast<const uint8_t*>(&len), reinterpret_cast<const uint8_t*>(&len) + 4);
             buffer_.insert(buffer_.end(), cmd.begin(), cmd.end());
-        }
-
-        void add_command(const string& cmd) {
-            add_command(Command(cmd.begin(), cmd.end()));
         }
 
         Command serialize() const {
@@ -55,7 +58,9 @@ namespace api {
             return commands;
         }
 
-
+        inline Command string_to_command(const string& s) {
+            return Command(s.begin(), s.end());
+        }
     };
 
     /*

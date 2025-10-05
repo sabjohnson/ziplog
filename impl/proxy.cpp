@@ -60,6 +60,8 @@ namespace impl {
             return;
         }
 
+        cout << "------------------------------------- RECV CLIENT REQ" << endl;
+
         // build and send response
         Message resp;
         resp.type = ACK;
@@ -79,18 +81,15 @@ namespace impl {
     }
 
     void Proxy::handle_append(int client_socket, const Command& data) {
-        // get current timestamp
-        Timestamp now = now_ms();
-
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        // add timestamp and data to pending request trackers
-        batch_times_.push_back(now);
+        // take notes of command
         batch_values_.push_back(data);
 
         // increment number of requests
         request_count_++;
+        cout << "request count: " << request_count_ << endl;
 
         // take note of client socket (respond after its replicated during epoch interval)
         client_sockets_.push_back(client_socket);
@@ -168,7 +167,11 @@ namespace impl {
         }
 
         // update your value
-        SequenceNumber slot_estimate_ = estimate_history_.empty() ? 0 : static_cast<SequenceNumber>(ceil(avg / estimate_history_.size()));
+        SequenceNumber slot_estimate_ = estimate_history_.empty() ? 0 :
+            static_cast<SequenceNumber>(
+            ceil(static_cast<double>(avg) / static_cast<double>(estimate_history_.size())));
+        cout << "--------------------------- SLOT ESTIMATE" << endl;
+        cout << "slot estimate: " << slot_estimate_ << endl;
 
         // send to zipper
         Message zip_req;
@@ -176,12 +179,12 @@ namespace impl {
         zip_req.shard_id = shard();
         zip_req.sender_id = id();
         zip_req.set_num_requests(slot_estimate_);
-        zip_req.set_timestamps(batch_times_);
+
+        cout << "req seq: " << zip_req.seq_or_count << endl;
 
         NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, config_.timeout_ms, config_.max_retries);
 
         // reset trackers
-        batch_times_.clear();
         request_count_ = 0;
     }
 
@@ -204,14 +207,28 @@ namespace impl {
     void Proxy::send_out_batch() {
         // obtain lock
         lock_guard<mutex> lock(mu_);
+        cout << " ---------------------------- BATCHES EMPTY? " << batch_values_.empty() << endl;
 
         // don't send anything out if you don't have any sequence numbers
-        if (sequences_.empty()) return;
+        if (sequences_.empty()) {
+            cout << "no sequences..." << endl;
+            return;
+        }
+
 
         // build message
         Message msg;
         msg.type = APPEND;
+        msg.shard_id = shard();
+        msg.sender_id = id();
         msg.seq_or_count = sequences_.front();
+
+        cout << "sending out a batch with seq: " << msg.seq_or_count << endl;
+        cout << "sequences: ";
+        for (const auto& seq : sequences_) {
+            cout << seq << ", ";
+        }
+        cout << endl;
 
         // add commands to batch
         CommandBatch batch;
@@ -237,6 +254,7 @@ namespace impl {
 
         if (!success) {
             resp.type = FAILURE;
+            cout << "FAILED TO SEND TO SERVER" << endl;
         }
 
         for (int client : client_sockets_) {

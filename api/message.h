@@ -30,12 +30,12 @@ namespace api {
 
         // Accessors to make intent clear (non-defensive assuming benign failures)
         SequenceNumber get_sequence_number() const {
-            assert(type == APPEND || type == ACK);
+            assert(type == APPEND || type == SKIP || type == ACK);
             return seq_or_count;
         }
 
         void set_sequence_number(SequenceNumber seq) {
-            assert(type == APPEND || type == ACK);
+            assert(type == APPEND || type == SKIP || type == ACK);
             seq_or_count = seq;
         }
 
@@ -49,15 +49,15 @@ namespace api {
             seq_or_count = count;
         }
 
-        const vector<Timestamp>& get_timestamps() const {
-            assert(type == ZIP_REQUEST);
-            return ordering_values;
-        }
-
-        void set_timestamps(const vector<Timestamp>& timestamps) {
-            assert(type == ZIP_REQUEST);
-            ordering_values = timestamps;
-        }
+//        const vector<Timestamp>& get_timestamps() const {
+//            assert(type == ZIP_REQUEST);
+//            return ordering_values;
+//        }
+//
+//        void set_timestamps(const vector<Timestamp>& timestamps) {
+//            assert(type == ZIP_REQUEST);
+//            ordering_values = timestamps;
+//        }
 
         const vector<SequenceNumber>& get_assigned_sequences() const {
             assert(type == ZIP_RESPONSE);

@@ -46,13 +46,16 @@ namespace impl {
         if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id)) {
             return;
         }
-        cout << "Received request from proxy " << req.sender_id << " with " << req.seq_or_count << " timestamp(s)" << endl;
+
+        if (req.get_num_requests()) {
+            cout << "Received request from proxy " << req.sender_id << " with " << req.get_num_requests() << " timestamp(s)" << endl;
+        }
 
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
         // take note of number fo requests
-        proxy_estimates_[req.sender_id] = req.seq_or_count;
+        proxy_estimates_[req.sender_id] = req.get_num_requests();
     }
 
     void Zipper::shutdown() {
@@ -97,6 +100,11 @@ namespace impl {
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
+        cout << "---------------------------PROXY ESTIMATES" << endl;
+        for (auto& [proxy_id, est] : proxy_estimates_) {
+            cout << "proxy " << proxy_id << ": " << est << endl;
+        }
+
         vector<pair<double, NodeId>> timestamps;    // vector or {timestamp, proxy_id}
 
         for (const auto& [proxy_id, estimate] : proxy_estimates_) {
@@ -122,8 +130,6 @@ namespace impl {
             proxy_sequence_numbers[p.second].push_back(global_seq_num_++);
         }
 
-        std::cout << "Allocated slots ------------------------------------------------------" << std::endl;
-
         // respond to all in this epoch
         for (const auto& [proxy_id, values] : proxy_sequence_numbers) {
 
@@ -143,7 +149,5 @@ namespace impl {
             }
             std::cout << "]" << std::endl;
         }
-        std::cout << "----------------------------------------------------------------------" << std::endl;
-
     }
 }}
