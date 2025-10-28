@@ -5,10 +5,11 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-    Client::Client(const ZiplogConfig& cfg, NodeId proxy_id) {
+    Client::Client(const ZiplogConfig& cfg, NodeId proxy_id)
+        : config_(cfg)
+        , proxy_id_(proxy_id)
+    {
         validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
-        config_ = cfg;
-        proxy_id_ = proxy_id;
     }
 
     bool Client::append(const Command& data) {

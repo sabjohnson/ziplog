@@ -30,6 +30,7 @@ namespace impl {
             ~Subscriber();
 
             void print_log();
+            void print_expanded_log();
             vector<Command> log() {
                 return log_;
             }

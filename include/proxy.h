@@ -15,8 +15,7 @@ namespace impl {
            deque<SequenceNumber> estimate_history_; // dequeue of request_count for the last couple epochs
 
            // sequence numbers and interval scheduling
-           size_t cur_sequences_size_;              // number of sequence numbers allocated this epoch
-           size_t next_sequences_size_;             // number of sequence numbers allocated next epoch
+           size_t cur_sequences_size_;              // number of sequence numbers allocated
            deque<SequenceNumber> sequences_;      // sequence numbers allocated
            uint32_t BATCH_INTERVAL;
 
@@ -26,6 +25,7 @@ namespace impl {
 
            // epoch tracking
            Timestamp epoch_startup_;
+           Timestamp next_send_;
 
            // threading
            mutex mu_;
@@ -38,7 +38,7 @@ namespace impl {
 
            void epoch_timer();
            void update_slot_estimate();
-           void set_up_batch_intervals();
+           void update_next_send();
            void send_out_batch();
 
            void handle_connection(int client_socket) override;

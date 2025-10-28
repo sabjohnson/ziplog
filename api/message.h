@@ -14,6 +14,8 @@ namespace api {
         ACK,            // subscriber to server OR server to proxy
         ZIP_REQUEST,    // proxy to zipper
         ZIP_RESPONSE,   // zipper to proxy
+        REPORT,
+        RECONFIGURATION,
     };
 
     struct Message {

@@ -14,6 +14,8 @@ namespace api {
         int f;
         int max_retries;
         int timeout_ms;
+        int max_epoch_history;
+        uint64_t epoch_duration_ms;
         pair<string, int> zipper;
         vector<pair<string, int>> proxies;
         vector<pair<string, int>> servers;

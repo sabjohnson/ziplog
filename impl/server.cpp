@@ -10,9 +10,13 @@ namespace impl {
     {
         // validate node id
         validate_node_id(server_id, cfg.num_servers(), "Server");
+
+        // init lag
+        lag_ = config_.epoch_duration_ms;
         
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         start_listening();
+        start_proxy_liveness_checks();
     }
     
     void Server::handle_connection(int proxy_socket) {
@@ -26,9 +30,22 @@ namespace impl {
             std::cout << "Server " << id_ << " received message from proxy " << msg.sender_id
                       << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << std::endl;
 
-            // process message
+            // process message from proxies
             if (msg.type == APPEND || msg.type == SKIP) {
                 broadcast_to_subscribers(msg);
+            }
+
+            else if (msg.type == ZIP_RESPONSE) {
+                update_expected_proxy_timeouts(msg);
+            }
+
+            else if (msg.type == ZIP_REQUEST) {
+                handle_zip_request(proxy_socket, msg);
+                return;
+            }
+
+            else if (msg.type == RECONFIGURATION) {
+                block_proxy(msg);
             }
             
             // send response (default to ack for now)
@@ -48,12 +65,39 @@ namespace impl {
         close(proxy_socket);
     }
 
+    void Server::handle_zip_request(int proxy_socket, const Message &msg) {
+        block_proxy(msg);
+
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+        Message ack_msg;
+        ack_msg.type = ACK;
+        ack_msg.shard_id = shard();
+        ack_msg.sender_id = id();
+        ack_msg.seq_or_count = last_used_sequence_number_[msg.sender_id];
+
+        if (!NetworkUtils::send_message(proxy_socket, ack_msg)) {
+            std::cerr << "Failed to send report repsonse to zipper" << std::endl;
+            // break here?
+        } else {
+            cout << "Server " << id() << " report responseto zipper" << endl;
+        }
+
+    }
+
     void Server::broadcast_to_subscribers(const Message &msg) {
         // verify validity of sender (valid proxy)
         if (msg.shard_id != shard() || !config_.isValidProxy(msg.sender_id)) {
             cout << "invalid proxy: " << msg.sender_id << endl;
             return;
         }
+
+        // verify sender was not blocked for reconfiguration
+        if (is_blocked(msg.sender_id)) {
+            return;
+        }
+
+        remove_timeout(msg.sender_id);
 
         cout << "Server broadcasting ---------------------------------" << endl;
         Message fwd_msg = msg;
@@ -68,13 +112,89 @@ namespace impl {
         }
     }
 
+    bool Server::is_blocked(NodeId id) {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        if (blocked_for_reconfiguration_.find(id) != blocked_for_reconfiguration_.end()) return true;
+        return false;
+    }
+
+    void Server::remove_timeout(NodeId id) {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        cout << "[server " << id_ << "] heard from proxy " << id << endl;
+        if (proxy_timeouts_[id].size() < 2) {
+            cerr << "warning: proxy_timeouts_ too small for proxy " << id << endl;
+            return;
+        }
+
+        // remove timeout and sequence number
+        proxy_timeouts_[id].pop_front();
+        last_used_sequence_number_[id] = proxy_timeouts_[id].front();
+        proxy_timeouts_[id].pop_front();
+    }
+
+    void Server::update_expected_proxy_timeouts(const Message& msg) {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // update expected sequences (Timestamp, SequenceNumber, Timestamp, ...)
+        proxy_timeouts_[msg.sender_id].insert(proxy_timeouts_[msg.sender_id].end(), msg.ordering_values.begin(), msg.ordering_values.end());
+    }
+
+    void Server::block_proxy(const Message& msg) {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        blocked_for_reconfiguration_[msg.sender_id] = true;
+    }
+
     void Server::shutdown() {
         BaseNode::shutdown();
         std::cout << "Server " << id_ << " shutting down" << std::endl;
     }
 
     Server::~Server() {
+        running_ = false;
+        if (failure_detector_thread_.joinable()) {
+            failure_detector_thread_.join();
+        }
         shutdown();
     }
 
+    void Server::failure_detect() {
+        running_ = true;
+
+        while (running_) {
+            Timestamp now = now_ms();
+            for (NodeId id = 0; id < config_.num_proxies(); id++) {
+                if (is_blocked(id)) continue;
+
+                mu_.lock();
+                if (!proxy_timeouts_[id].empty() && now >= proxy_timeouts_[id].front() + lag_) {
+                    mu_.unlock();
+                    report(id);
+                } else {
+                    mu_.unlock();
+                }
+
+            }
+
+            std::this_thread::sleep_for(1000ms);
+        }
+    }
+
+    void Server::report(NodeId id) {
+        cout << "[server " << id_ << "] reporting proxy " << id << endl;
+        auto [zipper_ip, zipper_port] = config_.zipper;
+
+        // build and send report to zipper
+        Message msg;
+        msg.type = REPORT;
+        msg.shard_id = shard();
+        msg.sender_id = id;
+        NetworkUtils::send_message_to_address(zipper_ip, zipper_port, msg, config_.timeout_ms, config_.max_retries);
+    }
 }}

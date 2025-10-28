@@ -3,15 +3,15 @@
   "timeout_ms": 10000,
   "max_retries": 3,
   "max_epoch_history": 10,
-  "epoch_duration_ms": 1000,
-  "zipper": "127.0.0.1:8000",
+  "epoch_duration_ms": 10,
+  "zipper": "10.0.0.1:8000",
   "proxies": [
-    "127.0.0.1:8001"
+    "10.0.0.2:8001"
   ],
   "servers": [
-    "127.0.0.1:8010"
+    "10.0.0.3:8010"
   ],
   "subscribers": [
-    "127.0.0.1:8020"
+    "10.0.0.4:8020"
   ]
 }

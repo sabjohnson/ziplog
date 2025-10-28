@@ -42,15 +42,6 @@ namespace impl {
             }
         }
 
-        virtual void shutdown() {
-            is_running_ = false;
-            if (sock_ >= 0) {
-                ::shutdown(sock_, SHUT_RDWR);
-                close(sock_);
-                sock_ = -1;
-            }
-        }
-
     private:
         void run() {
             if (is_running_) {
@@ -77,7 +68,7 @@ namespace impl {
                 int client_socket = accept(sock_, (struct sockaddr*)&client_addr, &client_len);
                 if (client_socket < 0) {
                     if (is_running_) {
-                        std::cerr << "failed to accept connection" << std::endl;
+                        //std::cerr  << "failed to accept connection" << std::endl;
                         continue;
                     } else {
                         break;
@@ -102,6 +93,15 @@ namespace impl {
 
         bool running() const {
             return is_running_;
+        }
+
+        virtual void shutdown() {
+            is_running_ = false;
+            if (sock_ >= 0) {
+                ::shutdown(sock_, SHUT_RDWR);
+                close(sock_);
+                sock_ = -1;
+            }
         }
     };
 }}

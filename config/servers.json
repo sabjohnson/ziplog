@@ -1,7 +1,9 @@
 {
   "f": 1,
   "max_retries": 3,
-  "timeout_ms": 30000000000000000,
+  "timeout_ms": 10000,
+  "max_epoch_history": 10,
+  "epoch_duration_ms": 1000,
   "zipper": "127.0.0.1:8000",
   "proxies": [
     "127.0.0.1:8001",
@@ -11,7 +13,7 @@
   "servers": [
     "localhost:8004",
     "127.0.0.1:8005",
-    "127.0.0.1:8010"
+    "127.0.0.1:8006"
   ],
   "subscribers": [
     "127.0.0.1:8007",

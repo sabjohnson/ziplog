@@ -71,6 +71,20 @@ namespace api {
             config.timeout_ms = j["timeout_ms"];
             if (config.f < 0) throw ConfigParseError("'f' field must be >= 0");
 
+            // store max epoch history
+            if (!j.contains("max_epoch_history") || !j["max_epoch_history"].is_number_integer()){
+                config.max_epoch_history = MAX_EPOCH_HISTORY;
+            } else {
+                config.max_epoch_history = j["max_epoch_history"];
+            }
+
+            // store epoch duration
+            if (!j.contains("epoch_duration_ms") || !j["epoch_duration_ms"].is_number_integer()){
+                config.epoch_duration_ms = EPOCH_DURATION_MS;
+            } else {
+                config.epoch_duration_ms = j["epoch_duration_ms"];
+            }
+
             // validate/store zipper address
             if (!j.contains("zipper")) {
                 throw ConfigParseError("Missing or invalid 'zipper' field");

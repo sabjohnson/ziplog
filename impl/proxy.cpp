@@ -20,8 +20,7 @@ namespace impl {
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         request_count_ = 0;
         cur_sequences_size_ = 0;
-        next_sequences_size_ = 0;
-        BATCH_INTERVAL = EPOCH_DURATION_MS;
+        next_send_ = 0;
 
 
         start_listening();
@@ -31,7 +30,7 @@ namespace impl {
     void Proxy::shutdown() {
         BaseNode::shutdown();
 
-        cout << "Proxy shutting down" << endl;
+        cout << "Proxy " << id() << " shutting down" << endl;
     }
 
     Proxy::~Proxy() {
@@ -60,7 +59,7 @@ namespace impl {
             return;
         }
 
-        cout << "------------------------------------- RECV CLIENT REQ" << endl;
+        cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
 
         // build and send response
         Message resp;
@@ -69,10 +68,8 @@ namespace impl {
         if (req.type == APPEND) {
             handle_append(client_socket, req.data);
             return;
-
         } else if (req.type == ZIP_RESPONSE) {
             handle_zip_response(req);
-
         }
 
         // send response
@@ -105,21 +102,29 @@ namespace impl {
                 successful_sends++;
             }
         }
+        cout << "successful sends = " << successful_sends << " vs " << " quorum = " << config_.quorum() << endl;
         return successful_sends == config_.quorum();
     }
 
     void Proxy::handle_zip_response(Message& msg) {
+        // obtain lock
+        mu_.lock();
+
         // validate zip response
         if (msg.shard_id != shard()) return;
 
-        // obtain lock
-        lock_guard<mutex> lock(mu_);
-
         // take note of number of allocated slots
-        next_sequences_size_ = msg.get_num_requests();
+        cur_sequences_size_ += msg.get_num_requests();
+        cout << "proxy "  << id() << " got " << msg.get_num_requests() << " slots from the zipper" << endl;
 
         // add new sequence numbers to your pool
         sequences_.insert(sequences_.end(), msg.ordering_values.begin(), msg.ordering_values.end());
+
+        // release lock
+        mu_.unlock();
+
+        // update next_send_update
+        update_next_send();
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -129,23 +134,23 @@ namespace impl {
     void Proxy::epoch_timer() {
         epoch_running_ = true;
         epoch_startup_ = now_ms();
-        Timestamp interval_startup = epoch_startup_;
+        update_next_send();
 
         while (epoch_running_) {
             Timestamp now = now_ms();
-            Timestamp elapsed = now - epoch_startup_;               // time since epoch startup
-            Timestamp elapsed_interval = now - interval_startup;    // time since interval startup
+            Timestamp elapsed = now - epoch_startup_;
 
-            if (elapsed >= EPOCH_DURATION_MS) { // full epoch elapsed
+            if (elapsed >= config_.epoch_duration_ms) { // full epoch elapsed
                 // restart state
                 epoch_startup_ = now_ms();
                 update_slot_estimate();
-                set_up_batch_intervals();
+                update_next_send();
+                cout << "[ proxy " << id() << "] new epoch for proxy" << endl;
 
-            } else if (elapsed_interval > BATCH_INTERVAL) { // full interval elapsed
-                interval_startup = now_ms();
+            } else if (next_send_ != 0 && now >= next_send_) { // time to send out next batch
+                cout << "[ proxy " << id() << "] updating send time for proxy" << endl;
                 send_out_batch();
-
+                update_next_send();
             }
 
             std::this_thread::sleep_for(5ms);
@@ -158,7 +163,7 @@ namespace impl {
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
-        if (estimate_history_.size() > MAX_EPOCH_HISTORY) {
+        if (estimate_history_.size() > static_cast<long unsigned int>(config_.max_epoch_history)) {
             estimate_history_.pop_front();
         }
         SequenceNumber avg = 0;
@@ -188,18 +193,23 @@ namespace impl {
         request_count_ = 0;
     }
 
-    void Proxy::set_up_batch_intervals() {
+    void Proxy::update_next_send() {
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        // update the intervals we will be working at
-        cur_sequences_size_ = next_sequences_size_;
-        next_sequences_size_ = 0;
+        // return if we don't need to update yet
+        Timestamp now = now_ms();
+        if (next_send_ != 0 && now < next_send_) return;
 
-        if (cur_sequences_size_ > 0) {
-            BATCH_INTERVAL = EPOCH_DURATION_MS / cur_sequences_size_;
-        } else {
-            BATCH_INTERVAL = EPOCH_DURATION_MS;
+        // get the next time we are working at
+        Timestamp next = 0;
+        if (cur_sequences_size_) {
+            next = sequences_.front();  // get timestamp
+            sequences_.pop_front(); // pop timestamp from sequences
+        }
+        next_send_ = next;
+
+        if (!next_send_) {
             cout << "Zipper did not allocate slots for proxy " << id() << " this epoch" << endl;
         }
     }
@@ -207,7 +217,7 @@ namespace impl {
     void Proxy::send_out_batch() {
         // obtain lock
         lock_guard<mutex> lock(mu_);
-        cout << " ---------------------------- BATCHES EMPTY? " << batch_values_.empty() << endl;
+        cout << "[proxy " << id() << "] ---------------------------- sending skip? " << batch_values_.empty() << endl;
 
         // don't send anything out if you don't have any sequence numbers
         if (sequences_.empty()) {
@@ -254,7 +264,7 @@ namespace impl {
 
         if (!success) {
             resp.type = FAILURE;
-            cout << "FAILED TO SEND TO SERVER" << endl;
+            cout << "[proxy " << id() << "] failed to replicate on quroum" << endl;
         }
 
         for (int client : client_sockets_) {
@@ -263,7 +273,8 @@ namespace impl {
         }
 
         // clear pending commands/client sockets (they have now been handled)
-        sequences_.pop_front();
+        sequences_.pop_front(); // removed used sequence number
+        cur_sequences_size_--;  // update number of usable sequence numbers
         batch_values_.clear();
         client_sockets_.clear();
     }

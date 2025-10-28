@@ -81,13 +81,52 @@ namespace impl {
             out_of_order_.erase(next_seq_);
             next_seq_++;
         }
-        print_log();
+        //print_log();
     }
 
     void Subscriber::print_log() {
         cout << "Current log..." << endl;
         for (size_t i = 0; i < log_.size(); i++) {
             cout << "Index " << i << ": " << string(log_[i].begin(), log_[i].end()) << endl;
+        }
+    }
+
+    /*
+        @brief: Removes skips and expands batched commands
+        @return: Expanded log
+    */
+    void Subscriber::print_expanded_log() {
+        vector<vector<Command>> new_log;
+
+        // expand all non-empty entries (may be batches)
+        for (const Command& entry : log_) {
+            vector<Command> batch = CommandBatch::deserialize(entry);
+            if (!batch.empty()) new_log.push_back(batch);
+        }
+
+        // log is built, print it out
+        cout << "-------- expanded log (" << new_log.size() << ") --------" << endl;
+        int i = 0;
+        for (const vector<Command>& entry : new_log) {
+            cout << "index " << i << ": ";
+            for (const Command& c : entry) cout << command_to_string(c);
+            cout << endl;
+            i++;
+        }
+
+        cout << "-------- pending log entries: " << pending_quorum_.size() << " --------" << endl;
+        i = 0;
+        for (const auto& [seq, servers] : pending_quorum_) {
+            cout << "seq " << seq << ": " << servers.size() << " servers" << endl;
+            i++;
+        }
+
+
+        cout << "-------- out of order log entries: " << out_of_order_.size() << " --------" << endl;
+        i = 0;
+        for (const auto& [seq, cmd] : out_of_order_) {
+            cout << "seq " << seq << ": " << command_to_string(cmd) << endl;
+            i++;
         }
     }
     
@@ -98,6 +137,6 @@ namespace impl {
     
     Subscriber::~Subscriber() {
         shutdown();
-        print_log();
+        print_expanded_log();
     }
 }}
