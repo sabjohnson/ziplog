@@ -114,7 +114,7 @@ namespace impl {
             i++;
         }
 
-        cout << "-------- pending log entries: " << pending_quorum_.size() << " --------" << endl;
+        cout << "-------- pending log entries (" << pending_quorum_.size() << ") --------" << endl;
         i = 0;
         for (const auto& [seq, servers] : pending_quorum_) {
             cout << "seq " << seq << ": " << servers.size() << " servers" << endl;
@@ -122,7 +122,7 @@ namespace impl {
         }
 
 
-        cout << "-------- out of order log entries: " << out_of_order_.size() << " --------" << endl;
+        cout << "-------- out of order log entries (" << out_of_order_.size() << ") --------" << endl;
         i = 0;
         for (const auto& [seq, cmd] : out_of_order_) {
             cout << "seq " << seq << ": " << command_to_string(cmd) << endl;

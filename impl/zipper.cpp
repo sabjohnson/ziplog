@@ -55,7 +55,6 @@ namespace impl {
         // create set if this is the first reporting
         if (blocked_for_reconfiguration_.find(failed_proxy) == blocked_for_reconfiguration_.end()) {
             blocked_for_reconfiguration_[failed_proxy] = set<NodeId>();
-            proxy_last_sequence_[failed_proxy] = set<SequenceNumber>();
         } else {
             return; // return if we already serviced this reconfiguration
         }
@@ -66,15 +65,49 @@ namespace impl {
         report_req.sender_id = failed_proxy;
 
         Message report_resp;
+        unordered_map<SequenceNumber, int> sequence_counts;  // seq -> how many servers have it
+        unordered_map<NodeId, SequenceNumber> server_sequences;  // server -> its last seq
+
         for (NodeId i = 0; i < config_.servers.size(); i++) {
             const auto& [server_ip, server_port] = config_.servers[i];
             if (NetworkUtils::request_from_zipper(server_ip, server_port, report_req, report_resp, config_.timeout_ms, config_.max_retries)) {
                 SequenceNumber last_sequence = report_resp.get_sequence_number();
 
                 blocked_for_reconfiguration_[failed_proxy].insert(i);
-                proxy_last_sequence_[failed_proxy].insert(last_sequence);
+
+                server_sequences[i] = last_sequence;
+
+                // cout how many servers have at least this sequence
+                for (SequenceNumber seq = 0; seq <= last_sequence; seq++) {
+                    sequence_counts[seq]++;
+                }
             }
         }
+
+        // determine max recoverable number of messages
+        SequenceNumber max_recoverable_seq = 0;
+        for (const auto& [seq, count] : sequence_counts) {
+            if (count >= config_.quorum() && seq > max_recoverable_seq) {
+                max_recoverable_seq = seq;
+            }
+        }
+
+        cout << "[zipper] max recoverable sequence for proxy " << failed_proxy << " is " << max_recoverable_seq << endl;
+
+        // find server with the longest log
+        NodeId longest_server = 0;
+        SequenceNumber longest_seq = 0;
+        for (const auto& [server_id, seq] : server_sequences) {
+            if (seq > longest_seq) {
+                longest_seq = seq;
+                longest_server = server_id;
+            }
+        }
+
+        cout << "[zipper] server with longest log for proxy " << failed_proxy << " is " << longest_server << " with " << longest_seq << endl;
+
+        // take note to start reconfiguration later
+        proxy_last_sequence_[failed_proxy] = max_recoverable_seq;
     }
 
     void Zipper::update_slot_estimate(Message &req) {

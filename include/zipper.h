@@ -19,7 +19,7 @@ namespace impl {
             SequenceNumber global_seq_num_;
             unordered_map<NodeId, SequenceNumber> proxy_estimates_;
             unordered_map<NodeId, set<NodeId>> blocked_for_reconfiguration_;
-            unordered_map<NodeId, set<SequenceNumber>> proxy_last_sequence_;
+            unordered_map<NodeId, SequenceNumber> proxy_last_sequence_;
 
             // epoch tracking
             Timestamp epoch_startup_;
