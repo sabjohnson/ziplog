@@ -15,6 +15,7 @@ namespace api {
         ZIP_REQUEST,    // proxy to zipper
         ZIP_RESPONSE,   // zipper to proxy
         REPORT,
+        FREEZE,
         RECONFIGURATION,
     };
 
@@ -41,6 +42,35 @@ namespace api {
             seq_or_count = seq;
         }
 
+        NodeId get_failed_proxy() const {
+            if (type == REPORT) {
+                return static_cast<NodeId>(seq_or_count);
+            } else if (type == FREEZE) {
+                return static_cast<NodeId>(ordering_values.front());
+            }
+            assert(false);
+        }
+
+        void set_failed_proxy(NodeId id) {
+            if (type == REPORT) {
+                seq_or_count = static_cast<SequenceNumber>(id);
+            } else if (type == FREEZE) {
+                ordering_values = {static_cast<SequenceNumber>(id)};
+            } else {
+                assert(false);
+            }
+        }
+
+        void set_round(SequenceNumber round) {
+            assert(type == FREEZE);
+            seq_or_count = round;
+        }
+
+        SequenceNumber get_round() {
+            assert(type == FREEZE);
+            return seq_or_count;
+        }
+
         SequenceNumber get_num_requests() const {
             assert(type == ZIP_REQUEST || type == ZIP_RESPONSE);
             return seq_or_count;
@@ -50,16 +80,6 @@ namespace api {
             assert(type == ZIP_REQUEST || type == ZIP_RESPONSE);
             seq_or_count = count;
         }
-
-//        const vector<Timestamp>& get_timestamps() const {
-//            assert(type == ZIP_REQUEST);
-//            return ordering_values;
-//        }
-//
-//        void set_timestamps(const vector<Timestamp>& timestamps) {
-//            assert(type == ZIP_REQUEST);
-//            ordering_values = timestamps;
-//        }
 
         const vector<SequenceNumber>& get_assigned_sequences() const {
             assert(type == ZIP_RESPONSE);

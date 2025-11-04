@@ -50,9 +50,9 @@ protected:
     void TearDown() override {
 
         // Stop everything gracefully first
-        for (auto& p : proxies) p->shutdown();
-        for (auto& s : servers) s->shutdown();
-        for (auto& s : subscribers) s->shutdown();
+        for (auto& p : proxies) if (p) p->shutdown();
+        for (auto& s : servers) if (s) s->shutdown();
+        for (auto& s : subscribers) if (s) s->shutdown();
 
         std::this_thread::sleep_for(200ms);
 
@@ -183,8 +183,8 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     std::this_thread::sleep_for(50ms);
     std::thread t3([&]() { ASSERT_TRUE(send_append(2, "best")); });
     std::thread killer([&]() {
-        std::this_thread::sleep_for(300ms);
-        proxies[0]->shutdown();
+        std::this_thread::sleep_for(1100ms);
+        proxies[0].reset();
     });
 
 

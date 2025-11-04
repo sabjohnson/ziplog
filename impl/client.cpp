@@ -18,8 +18,12 @@ namespace impl {
         Message msg;
         msg.type = APPEND;
         msg.data = data;
-        cout << "sending smthn" << endl;
-        return NetworkUtils::send_message_to_address(proxy_ip, proxy_port, msg, config_.timeout_ms, config_.max_retries);
+
+        Message resp;
+        if (NetworkUtils::send_message_to_address(proxy_ip, proxy_port, msg, resp, config_.max_retries)) {
+            return resp.type == SUCCESS;
+        }
+        return false;
     }
 
     bool Client::bulk_append(const vector<Command>& commands) {

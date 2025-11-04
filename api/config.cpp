@@ -59,17 +59,12 @@ namespace api {
                 throw ConfigParseError("Missing or invalid 'f' field");
             }
             config.f = j["f"];
+
             // store max retries
             if (!j.contains("max_retries") || !j["max_retries"].is_number_integer()) {
                 throw ConfigParseError("Missing or invalid 'max_retries' field");
             }
             config.max_retries = j["max_retries"];
-            // store timeout
-            if (!j.contains("timeout_ms") || !j["timeout_ms"].is_number_integer()) {
-                throw ConfigParseError("Missing or invalid 'timeout_ms' field");
-            }
-            config.timeout_ms = j["timeout_ms"];
-            if (config.f < 0) throw ConfigParseError("'f' field must be >= 0");
 
             // store max epoch history
             if (!j.contains("max_epoch_history") || !j["max_epoch_history"].is_number_integer()){

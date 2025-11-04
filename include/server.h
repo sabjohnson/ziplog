@@ -22,7 +22,7 @@ namespace impl {
         unordered_map<NodeId, SequenceNumber> last_used_sequence_number_;
 
         void handle_connection(int proxy_socket) override;
-        void handle_zip_request(int proxy_socket, const Message& msg);
+        void handle_freeze(int proxy_socket, const Message& msg);
         void broadcast_to_subscribers(const Message& msg);
         void update_expected_proxy_timeouts(const Message& msg);
         void block_proxy(const Message& msg);

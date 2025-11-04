@@ -10,45 +10,25 @@ namespace api {
     -------------------------------------------------------------------------------------------
     */
 
-    // creates connector socket and attempt to send a message ('max_retries'x)
-    bool NetworkUtils::send_message_to_address(const string& ip, int port, const Message& msg, int timeout_ms, int max_retries) {
-        for (int attempt = 0; attempt < max_retries; attempt++) {
-            // create connector socket (outgoing connection)
-            int sockfd = create_connector_socket(timeout_ms);
-            if (sockfd < 0) continue;
-
-            // attempt to connect to address of recipient
-            if (connect_to_address(sockfd, ip, port)) {
-                bool success = send_message_and_wait_for_ack(sockfd, msg);
-                close(sockfd);
-                if (success) return true;
-            } else {
-                close(sockfd);
-            }
-
-        }
-        return false;
-    }
-
     // sends a message on a connect and wait for a response
     bool NetworkUtils::send_message_and_wait_for_ack(int connector_socket, const Message& msg) {
         if (!send_message(connector_socket, msg)) {
             return false;
         }
 
-        Message ack_response;
-        if (!recv_message(connector_socket, ack_response)) {
+        Message resp;
+        if (!recv_message(connector_socket, resp)) {
             return false;
         }
 
-        return true;
+        return resp.type == ACK && msg.get_sequence_number() == resp.get_sequence_number();
     }
 
-    // send request to zipper
-    bool NetworkUtils::request_from_zipper(const string& ip, int port, const Message& msg, Message& resp, int timeout_ms, int max_retries) {
+    // creates connector socket and attempt to send a message ('max_retries'x) and stores response
+    bool NetworkUtils::send_message_to_address(const string& ip, int port, const Message& msg, Message& resp, int max_retries) {
         for (int attempt = 0; attempt < max_retries; attempt++) {
             // create connector socket (outgoing connection)
-            int sockfd = create_connector_socket(timeout_ms);
+            int sockfd = create_connector_socket();
             if (sockfd < 0) continue;
 
             // attempt to connect to address of recipient
@@ -162,21 +142,10 @@ namespace api {
     */
 
     // useful for clients in ziplog architecture
-    int NetworkUtils::create_connector_socket(int timeout_ms) {
+    int NetworkUtils::create_connector_socket() {
         // bind to socket
         int sockfd = socket(AF_INET, SOCK_STREAM, 0);   // creates socket
         if (sockfd < 0) return -1;
-
-        // set receive timeout
-        if (timeout_ms > 0) {
-            struct timeval timeout;
-            timeout.tv_sec = timeout_ms / 1000;
-            timeout.tv_usec = (timeout_ms % 1000) * 1000;
-            if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-                close(sockfd);
-                return -1;
-            }
-        }
 
         return sockfd;
     }

@@ -1,7 +1,9 @@
 #include "proxy.h"
 #include <math.h>
+#include <future>
 
 using namespace ziplog::api;
+using std::future;
 
 namespace ziplog {
 namespace impl {
@@ -29,22 +31,27 @@ namespace impl {
 
     void Proxy::shutdown() {
         BaseNode::shutdown();
-
-        cout << "Proxy " << id() << " shutting down" << endl;
     }
 
     Proxy::~Proxy() {
+        cout << "Proxy " << id() << " shutting down" << endl;
         epoch_running_ = false;
         if (epoch_thread_.joinable()) {
             epoch_thread_.join();
         }
 
         lock_guard<mutex> lock(mu_);
+
+        Message failure;
+        failure.type = FAILURE;
         for (int client : client_sockets_) {
+            cout << "[proxy " << id_ << "] sending failure to client on shutdown" << endl;
+            NetworkUtils::send_message(client, failure);
             close(client);
         }
 
         shutdown();
+
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -94,16 +101,27 @@ namespace impl {
 
     // attempt to replicate on f + 1 storage servers
     bool Proxy::replicate_on_quorum(Message& msg) {
-        size_t successful_sends = 0;
-        for (size_t i = 0; i < config_.num_servers() && successful_sends < config_.quorum(); i++) {
+        vector<future<bool>> futures;
+
+        for (size_t i = 0; i < config_.num_servers(); i++) {
             auto [server_ip, server_port] = config_.servers[i];
 
-            if (NetworkUtils::send_message_to_address(server_ip, server_port, msg, config_.timeout_ms, config_.max_retries)) {
-                successful_sends++;
-            }
+            futures.push_back(std::async(std::launch::async, [=, &msg]() {
+                Message resp;
+                if (NetworkUtils::send_message_to_address(server_ip, server_port, msg, resp, config_.max_retries)) {
+                    return resp.type == ACK;
+                }
+                return false;
+            }));
         }
+
+        size_t successful_sends = 0;
+        for (auto& f : futures) {
+            if (f.get()) successful_sends++;
+        }
+
         cout << "successful sends = " << successful_sends << " vs " << " quorum = " << config_.quorum() << endl;
-        return successful_sends == config_.quorum();
+        return successful_sends >= config_.quorum();
     }
 
     void Proxy::handle_zip_response(Message& msg) {
@@ -115,7 +133,7 @@ namespace impl {
 
         // take note of number of allocated slots
         cur_sequences_size_ += msg.get_num_requests();
-        cout << "proxy "  << id() << " got " << msg.get_num_requests() << " slots from the zipper" << endl;
+        cout << "[proxy "  << id() << "] got " << msg.get_num_requests() << " slots from the zipper" << endl;
 
         // add new sequence numbers to your pool
         sequences_.insert(sequences_.end(), msg.ordering_values.begin(), msg.ordering_values.end());
@@ -159,7 +177,7 @@ namespace impl {
 
     void Proxy::update_slot_estimate() {
         // obtain lock
-        lock_guard<mutex> lock(mu_);
+        mu_.lock();
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
@@ -175,8 +193,11 @@ namespace impl {
         SequenceNumber slot_estimate_ = estimate_history_.empty() ? 0 :
             static_cast<SequenceNumber>(
             ceil(static_cast<double>(avg) / static_cast<double>(estimate_history_.size())));
-        cout << "--------------------------- SLOT ESTIMATE" << endl;
-        cout << "slot estimate: " << slot_estimate_ << endl;
+
+        // reset trackers
+        request_count_ = 0;
+
+        mu_.unlock();
 
         // send to zipper
         Message zip_req;
@@ -185,12 +206,10 @@ namespace impl {
         zip_req.sender_id = id();
         zip_req.set_num_requests(slot_estimate_);
 
+        Message resp;
         cout << "req seq: " << zip_req.seq_or_count << endl;
 
-        NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, config_.timeout_ms, config_.max_retries);
-
-        // reset trackers
-        request_count_ = 0;
+        NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, resp, config_.max_retries);
     }
 
     void Proxy::update_next_send() {
@@ -210,35 +229,27 @@ namespace impl {
         next_send_ = next;
 
         if (!next_send_) {
-            cout << "Zipper did not allocate slots for proxy " << id() << " this epoch" << endl;
+            //cout << "Zipper did not allocate slots for proxy " << id() << " this epoch" << endl;
         }
     }
 
     void Proxy::send_out_batch() {
         // obtain lock
-        lock_guard<mutex> lock(mu_);
-        cout << "[proxy " << id() << "] ---------------------------- sending skip? " << batch_values_.empty() << endl;
+        mu_.lock();
 
         // don't send anything out if you don't have any sequence numbers
         if (sequences_.empty()) {
-            cout << "no sequences..." << endl;
+            //cout << "no sequences..." << endl;
+            mu_.unlock();
             return;
         }
-
 
         // build message
         Message msg;
         msg.type = APPEND;
         msg.shard_id = shard();
         msg.sender_id = id();
-        msg.seq_or_count = sequences_.front();
-
-        cout << "sending out a batch with seq: " << msg.seq_or_count << endl;
-        cout << "sequences: ";
-        for (const auto& seq : sequences_) {
-            cout << seq << ", ";
-        }
-        cout << endl;
+        msg.set_sequence_number(sequences_.front());
 
         // add commands to batch
         CommandBatch batch;
@@ -252,6 +263,16 @@ namespace impl {
             // no commands to send (send skip)
             msg.type = SKIP;
         }
+
+        deque<int> clients_to_respond = client_sockets_;
+
+        // clear pending commands/client sockets (they have now been handled)
+        sequences_.pop_front(); // removed used sequence number
+        cur_sequences_size_--;  // update number of usable sequence numbers
+        batch_values_.clear();
+        client_sockets_.clear();
+
+        mu_.unlock();
 
         msg.data = batch.serialize();
 
@@ -267,16 +288,9 @@ namespace impl {
             cout << "[proxy " << id() << "] failed to replicate on quroum" << endl;
         }
 
-        for (int client : client_sockets_) {
+        for (int client : clients_to_respond) {
             NetworkUtils::send_message(client, resp);
             close(client);
         }
-
-        // clear pending commands/client sockets (they have now been handled)
-        sequences_.pop_front(); // removed used sequence number
-        cur_sequences_size_--;  // update number of usable sequence numbers
-        batch_values_.clear();
-        client_sockets_.clear();
     }
-
 }}

@@ -49,20 +49,21 @@ namespace impl {
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        NodeId failed_proxy = req.sender_id;
-        cout << "[zipper] received report for proxy_id " << failed_proxy << endl;
+        NodeId failed_proxy = req.get_failed_proxy();
 
         // create set if this is the first reporting
         if (blocked_for_reconfiguration_.find(failed_proxy) == blocked_for_reconfiguration_.end()) {
             blocked_for_reconfiguration_[failed_proxy] = set<NodeId>();
+            cout << "[zipper] received report for proxy_id " << failed_proxy << endl;
         } else {
+            cout << "[zipper] received duplicate report for proxy_id " << failed_proxy << endl;
             return; // return if we already serviced this reconfiguration
         }
 
         Message report_req;
-        report_req.type = ZIP_REQUEST;
+        report_req.type = FREEZE;
         report_req.shard_id = shard();
-        report_req.sender_id = failed_proxy;
+        report_req.set_failed_proxy(failed_proxy);
 
         Message report_resp;
         unordered_map<SequenceNumber, int> sequence_counts;  // seq -> how many servers have it
@@ -70,7 +71,7 @@ namespace impl {
 
         for (NodeId i = 0; i < config_.servers.size(); i++) {
             const auto& [server_ip, server_port] = config_.servers[i];
-            if (NetworkUtils::request_from_zipper(server_ip, server_port, report_req, report_resp, config_.timeout_ms, config_.max_retries)) {
+            if (NetworkUtils::send_message_to_address(server_ip, server_port, report_req, report_resp, config_.max_retries)) {
                 SequenceNumber last_sequence = report_resp.get_sequence_number();
 
                 blocked_for_reconfiguration_[failed_proxy].insert(i);
@@ -169,10 +170,11 @@ namespace impl {
 
     void Zipper::allocate_slots() {
         // obtain lock
-        lock_guard<mutex> lock(mu_);
+        mu_.lock();
 
-        cout << "---------------------------PROXY ESTIMATES" << endl;
+        cout << "[zipper] ---------------------------PROXY ESTIMATES" << endl;
         for (auto& [proxy_id, est] : proxy_estimates_) {
+            if (blocked_for_reconfiguration_.find(proxy_id) != blocked_for_reconfiguration_.end()) continue;
             cout << "proxy " << proxy_id << ": " << est << endl;
         }
 
@@ -203,30 +205,40 @@ namespace impl {
             proxy_sequence_numbers[p.second].push_back(global_seq_num_++);
         }
 
-        // respond to all in this epoch
+        mu_.unlock();
+
+        // respond to all in this epoch using threads
         for (const auto& [proxy_id, values] : proxy_sequence_numbers) {
-
-            Message resp;
-            resp.type = ZIP_RESPONSE;
-            resp.shard_id = shard();
-            resp.sender_id = proxy_id;
-            resp.set_num_requests(static_cast<SequenceNumber>(values.size() / 2));
-            resp.set_assigned_sequences(values); // {timestamp, seq_num, timestamp, seq_num, ...}
-
-            auto& [proxy_ip, proxy_port] = config_.proxies[proxy_id];
-            NetworkUtils::send_message_to_address(proxy_ip, proxy_port, resp, config_.timeout_ms, config_.max_retries);
-
-            // share sequence numbers to all srevers too
-            for (const auto& [server_ip, server_port] : config_.servers) {
-                NetworkUtils::send_message_to_address(server_ip, server_port, resp, config_.timeout_ms, config_.max_retries);
-            }
-
-            std::cout << "proxy " << proxy_id << " : [";
-            for (size_t i = 0; i < values.size(); ++i) {
-                std::cout << values[i];
-                if (i < values.size() - 1) std::cout << ", ";
-            }
-            std::cout << "]" << std::endl;
+            thread t([this, proxy_id, values]() {
+                deliver_slot_allocation(proxy_id, values);
+            });
+            t.detach();
         }
+    }
+
+    void Zipper::deliver_slot_allocation(NodeId proxy_id, const vector<SequenceNumber>& values) {
+        Message resp;
+        resp.type = ZIP_RESPONSE;
+        resp.shard_id = shard();
+        resp.sender_id = proxy_id;
+        resp.set_num_requests(static_cast<SequenceNumber>(values.size() / 2));
+        resp.set_assigned_sequences(values); // {timestamp, seq_num, timestamp, seq_num, ...}
+
+        Message ack;
+        auto& [proxy_ip, proxy_port] = config_.proxies[proxy_id];
+
+        NetworkUtils::send_message_to_address(proxy_ip, proxy_port, resp, ack, config_.max_retries);
+
+        // share sequence numbers to all srevers too
+        for (const auto& [server_ip, server_port] : config_.servers) {
+            NetworkUtils::send_message_to_address(server_ip, server_port, resp, ack, config_.max_retries);
+        }
+
+        std::cout << "proxy " << proxy_id << " : [";
+        for (size_t i = 0; i < values.size(); ++i) {
+            std::cout << values[i];
+            if (i < values.size() - 1) std::cout << ", ";
+        }
+        std::cout << "]" << std::endl;
     }
 }}

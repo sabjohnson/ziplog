@@ -32,7 +32,7 @@ namespace impl {
             // send response (default to ack for now)
             Message ack_msg;
             ack_msg.type = ACK;
-            ack_msg.sender_id = id_;
+            ack_msg.sender_id = id();
             ack_msg.seq_or_count = msg.seq_or_count;
             
             if (!NetworkUtils::send_message(server_sock, ack_msg)) {
@@ -48,8 +48,8 @@ namespace impl {
             cout << "invalid server: " << msg.sender_id << endl;
             return;
         }
-        cout << "Subscriber " << id() << " received message from server " << msg.sender_id
-                  << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << endl;
+        //cout << "[subscriber " << id() << "] received message from server " << msg.sender_id
+             //     << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << endl;
 
         // obtain lock
         lock_guard<mutex> lock(mu_);
@@ -76,7 +76,6 @@ namespace impl {
 
         // add all available consecutive commands
         while (out_of_order_.count(next_seq_)) {
-            cout << "ADDED TO LOG --------------------------------------------" << endl;
             log_.push_back(out_of_order_[next_seq_]);
             out_of_order_.erase(next_seq_);
             next_seq_++;

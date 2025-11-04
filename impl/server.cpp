@@ -1,6 +1,8 @@
 #include "server.h"
+#include <future>
 
 using namespace ziplog::api;
+using std::future;
 
 namespace ziplog {
 namespace impl {
@@ -27,8 +29,8 @@ namespace impl {
                 //std::cerr << "Failed to receive message from proxy" << std::endl;
                 break;
             }
-            std::cout << "Server " << id_ << " received message from proxy " << msg.sender_id
-                      << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << std::endl;
+            //std::cout << "Server " << id_ << " received message from proxy " << msg.sender_id
+              //        << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << std::endl;
 
             // process message from proxies
             if (msg.type == APPEND || msg.type == SKIP) {
@@ -39,8 +41,8 @@ namespace impl {
                 update_expected_proxy_timeouts(msg);
             }
 
-            else if (msg.type == ZIP_REQUEST) {
-                handle_zip_request(proxy_socket, msg);
+            else if (msg.type == FREEZE) {
+                handle_freeze(proxy_socket, msg);
                 return;
             }
 
@@ -56,25 +58,26 @@ namespace impl {
             ack_msg.seq_or_count = msg.seq_or_count;
             
             if (!NetworkUtils::send_message(proxy_socket, ack_msg)) {
-                std::cerr << "Failed to send ACK to proxy" << std::endl;
+                //std::cerr << "Failed to send ACK to proxy" << std::endl;
                 // break here?
             } else {
-                std::cout << "Server " << id_ << " sent ACK for message " << msg.seq_or_count << "\n" << std::endl;
+                //std::cout << "Server " << id_ << " sent ACK for message " << msg.seq_or_count << "\n" << std::endl;
             }
         }
         close(proxy_socket);
     }
 
-    void Server::handle_zip_request(int proxy_socket, const Message &msg) {
+    void Server::handle_freeze(int proxy_socket, const Message &msg) {
         block_proxy(msg);
 
         // obtain lock
-        lock_guard<mutex> lock(mu_);
+        mu_.lock();
         Message ack_msg;
         ack_msg.type = ACK;
         ack_msg.shard_id = shard();
         ack_msg.sender_id = id();
-        ack_msg.seq_or_count = last_used_sequence_number_[msg.sender_id];
+        ack_msg.set_sequence_number(last_used_sequence_number_[msg.get_failed_proxy()]);
+        mu_.unlock();
 
         if (!NetworkUtils::send_message(proxy_socket, ack_msg)) {
             std::cerr << "Failed to send report repsonse to zipper" << std::endl;
@@ -99,16 +102,24 @@ namespace impl {
 
         remove_timeout(msg.sender_id);
 
-        cout << "Server broadcasting ---------------------------------" << endl;
+        //cout << "Server broadcasting ---------------------------------" << endl;
         Message fwd_msg = msg;
         fwd_msg.sender_id = id();
 
+        vector<future<void>> futures;
         for (size_t i = 0; i < config_.num_subscribers(); i++) {
             auto [subscriber_ip, subscriber_port] = config_.subscribers[i];
 
-            if (!NetworkUtils::send_message_to_address(subscriber_ip, subscriber_port, fwd_msg, config_.timeout_ms, config_.max_retries)) {
-                std::cerr << "Server " << id_ << " failed to deliver to subscriber " << i << " after " << config_.max_retries << " attempts" << std::endl;
-            }
+            futures.push_back(std::async(std::launch::async, [=]() {
+                Message ack;
+                if (!NetworkUtils::send_message_to_address(subscriber_ip, subscriber_port, fwd_msg, ack, config_.max_retries)) {
+                    std::cerr << "Server " << id_ << " failed to deliver to subscriber " << i << " after " << config_.max_retries << " attempts" << std::endl;
+                }
+            }));
+        }
+
+        for (auto& f : futures) {
+            f.wait();
         }
     }
 
@@ -124,7 +135,7 @@ namespace impl {
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        cout << "[server " << id_ << "] heard from proxy " << id << endl;
+        //cout << "[server " << id_ << "] heard from proxy " << id << endl;
         if (proxy_timeouts_[id].size() < 2) {
             cerr << "warning: proxy_timeouts_ too small for proxy " << id << endl;
             return;
@@ -182,7 +193,7 @@ namespace impl {
 
             }
 
-            std::this_thread::sleep_for(1000ms);
+            std::this_thread::sleep_for(config_.epoch_duration_ms * 1ms);
         }
     }
 
@@ -191,10 +202,13 @@ namespace impl {
         auto [zipper_ip, zipper_port] = config_.zipper;
 
         // build and send report to zipper
-        Message msg;
-        msg.type = REPORT;
-        msg.shard_id = shard();
-        msg.sender_id = id;
-        NetworkUtils::send_message_to_address(zipper_ip, zipper_port, msg, config_.timeout_ms, config_.max_retries);
+        Message req;
+        req.type = REPORT;
+        req.shard_id = shard();
+        req.sender_id = id_;
+        req.set_failed_proxy(id);
+
+        Message resp;
+        NetworkUtils::send_message_to_address(zipper_ip, zipper_port, req, resp, config_.max_retries);
     }
 }}

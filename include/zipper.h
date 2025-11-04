@@ -39,6 +39,7 @@ namespace impl {
             void update_slot_estimate(Message &msg);           // takes note of a proxies requested number of slots
             void request_last_messages(Message &msg);
             void allocate_slots();                  // sort timestamp and give global sequence numbers
+            void deliver_slot_allocation(NodeId proxy_id, const vector<SequenceNumber>& values);
 
         public:
             Zipper(const ZiplogConfig& cfg);

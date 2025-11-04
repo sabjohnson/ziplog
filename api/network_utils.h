@@ -13,28 +13,22 @@ namespace api {
         */
 
         /*
-            @brief: Creates connector socket and calls sendMessageAndWaitForAck(msg) at most max_retries times.
+            @brief: Creates connector socket and calls send_message_to_address() at most max_retries times.
             @param ip: ipv4 address of recipient
             @param port: port of recipient
             @param msg: message being sent to recipient
-            @param timeout: timeout specification
             @param max_retries: max number of retries
-            @return: true on communication success, false otherwise
+            @return: true on communication success (and fills resp), false otherwise
         */
-        static bool send_message_to_address(const string& ip, int port, const Message& msg, int timeout_ms, int max_retries);
+        static bool send_message_to_address(const string& ip, int port, const Message& msg, Message& resp, int max_retries);
 
         /*
-            @brief: Send/receive once with timeout. Checks that the message/acknowledgment sequence number match
+            @brief: Send/receive once. Checks that the message/acknowledgment sequence number match
             @param socket: 'connector socket' file descriptor
             @param msg: message being sent on socket
             @return: true on success in sending/receiving to/from recipient, false otherwise
         */
         static bool send_message_and_wait_for_ack(int socket, const Message& msg);
-
-        /*
-            fill in later
-        */
-        static bool request_from_zipper(const string& ip, int port, const Message& msg, Message& resp, int timeout_ms, int max_retries);
 
         /*
         -------------------------------------------------------------------------------------------
@@ -78,7 +72,7 @@ namespace api {
             @param: number of milliseconds to wait to receive on a connection before timing out
             @return: file descriptor for socket for outgoing connections
         */
-        static int create_connector_socket(int timeout_ms = 0);
+        static int create_connector_socket();
 
         /*
             @param: ipv4 address, port and a flag marking if the socket should be re-usable
