@@ -35,57 +35,171 @@ namespace impl {
             // process message from proxies
             if (msg.type == APPEND || msg.type == SKIP) {
                 broadcast_to_subscribers(msg);
+
+                Message ack_msg;
+                ack_msg.type = ACK;
+                ack_msg.shard_id = shard();
+                ack_msg.sender_id = id();
+                ack_msg.set_sequence_number(msg.get_sequence_number());
+                NetworkUtils::send_message(proxy_socket, ack_msg);
             }
 
             else if (msg.type == ZIP_RESPONSE) {
                 update_expected_proxy_timeouts(msg);
+
+                Message ack_msg;
+                ack_msg.type = ACK;
+                ack_msg.shard_id = shard();
+                ack_msg.sender_id = id();
+                NetworkUtils::send_message(proxy_socket, ack_msg);
             }
 
             else if (msg.type == FREEZE) {
                 handle_freeze(proxy_socket, msg);
-                return;
             }
 
-            else if (msg.type == RECONFIGURATION) {
-                block_proxy(msg);
+            else if (msg.type == TRANSFER_REQUEST) {
+                handle_transfer_request(proxy_socket, msg);
             }
-            
-            // send response (default to ack for now)
-            Message ack_msg;
-            ack_msg.type = ACK;
-            ack_msg.shard_id = shard();
-            ack_msg.sender_id = id_;
-            ack_msg.seq_or_count = msg.seq_or_count;
-            
-            if (!NetworkUtils::send_message(proxy_socket, ack_msg)) {
-                //std::cerr << "Failed to send ACK to proxy" << std::endl;
-                // break here?
-            } else {
-                //std::cout << "Server " << id_ << " sent ACK for message " << msg.seq_or_count << "\n" << std::endl;
+
+            else if (msg.type == FREEZE_COMPLETE) {
+                block_proxy(msg);
+
+                Message ack_msg;
+                ack_msg.type = ACK;
+                ack_msg.shard_id = shard();
+                ack_msg.sender_id = id();
+                NetworkUtils::send_message(proxy_socket, ack_msg);
             }
         }
         close(proxy_socket);
     }
 
-    void Server::handle_freeze(int proxy_socket, const Message &msg) {
-        block_proxy(msg);
+    void Server::handle_freeze(int zip_socket, const Message &msg) {
+        cout << "[server " << id() << "] got a freeze" << endl;
+        NodeId failed_proxy = msg.get_failed_proxy();
 
-        // obtain lock
+        // determine if the message is outdated
         mu_.lock();
-        Message ack_msg;
-        ack_msg.type = ACK;
-        ack_msg.shard_id = shard();
-        ack_msg.sender_id = id();
-        ack_msg.set_sequence_number(last_used_sequence_number_[msg.get_failed_proxy()]);
+        if (rounds_.find(failed_proxy) != rounds_.end() && rounds_[failed_proxy] > msg.get_round()) {
+            mu_.unlock();
+            cout << "[server " << id() << "] outdated freeze" << endl;
+            return;
+        }
+        rounds_[failed_proxy] = msg.get_round();
+        blocked_for_reconfiguration_[failed_proxy] = false;
+
+        // obtain lock and take note of last received message
+        Message transfer;
+        transfer.type = TRANSFER_REQUEST;
+        transfer.shard_id = shard();
+        transfer.sender_id = id();
+        transfer.set_failed_proxy(failed_proxy);
+        transfer.set_round(msg.get_round());
+        transfer.set_sequence_number(last_used_sequence_number_[failed_proxy]);
         mu_.unlock();
 
-        if (!NetworkUtils::send_message(proxy_socket, ack_msg)) {
-            std::cerr << "Failed to send report repsonse to zipper" << std::endl;
-            // break here?
-        } else {
-            cout << "Server " << id() << " report responseto zipper" << endl;
+        // bcast that to all other servers
+        cout << "[server " << id() << "] bcasting transfer" << endl;
+        for (NodeId i = 0; i < config_.servers.size(); i++) {
+            if (i == id()) continue;
+            const auto& [server_ip, server_port] = config_.servers[i];
+
+            int socket = NetworkUtils::create_connector_socket();
+            if (socket < 0) continue;
+
+            if (!NetworkUtils::connect_to_address(socket, server_ip, server_port)) {
+                close(socket);
+                continue;
+            }
+
+            if (!NetworkUtils::send_message(socket, transfer)) {
+                close(socket);
+                continue;
+            }
+
+            while (true) {
+                Message resp;
+                if (!NetworkUtils::recv_message(socket, resp)) {
+                    cout << "[server " << id() << "] coudnlt recv on connection" << endl;
+                    break;
+                }
+                if (resp.type == ACK) {
+                    cout << "[server " << id() << "] got ack" << endl;
+                    break;
+                }
+                cout << "[server " << id() << "] got stored message" << endl;
+                broadcast_to_subscribers(resp);
+            }
+            close(socket);
         }
 
+        // determine the latest
+        mu_.lock();
+        Message freeze_response;
+        freeze_response.type = FREEZE_RESPONSE;
+        freeze_response.shard_id = shard();
+        freeze_response.sender_id = id();
+        freeze_response.set_failed_proxy(failed_proxy);
+        freeze_response.set_round(msg.get_round());
+        freeze_response.set_sequence_number(last_used_sequence_number_[failed_proxy]);
+        cout << "[server " << id() << "] passed data collection.last seq = " << last_used_sequence_number_[failed_proxy] << endl;
+        mu_.unlock();
+
+        NetworkUtils::send_message(zip_socket, freeze_response);
+    }
+
+    void Server:: handle_transfer_request(int socket, const Message& msg) {
+        // verify validity of sender (valid server)
+        if (msg.shard_id != shard() || !config_.isValidServer(msg.sender_id)) {
+            cout << "invalid server: " << msg.sender_id << endl;
+            return;
+        }
+
+        NodeId failed_proxy = msg.get_failed_proxy();
+
+        // determine if the message is outdated
+        mu_.lock();
+        if (rounds_.find(failed_proxy) != rounds_.end() && rounds_[failed_proxy] > msg.get_round()) {
+            mu_.unlock();
+            Message ack;
+            ack.type = ACK;
+            NetworkUtils::send_message(socket, ack);
+            return;
+        }
+
+        // update the round
+        if (rounds_.find(failed_proxy) == rounds_.end() || rounds_[failed_proxy] < msg.get_round()) {
+            rounds_[failed_proxy] = msg.get_round();
+        }
+
+        // send all messages you have
+        SequenceNumber req_last_seq = msg.get_sequence_number();
+
+        if (last_used_sequence_number_.find(failed_proxy) == last_used_sequence_number_.end()) {
+            mu_.unlock();
+            Message ack;
+            ack.type = ACK;
+            ack.set_sequence_number(req_last_seq);
+            NetworkUtils::send_message(socket, ack);
+            return;
+        }
+
+        auto& messages = proxy_messages_[failed_proxy];
+        mu_.unlock();
+
+        for (const auto& stored_msg : messages) {
+            SequenceNumber seq = stored_msg.get_sequence_number();
+            if (seq <= req_last_seq) continue;
+
+            if (!NetworkUtils::send_message(socket, stored_msg)) {
+                return;
+            }
+        }
+
+        Message ack;
+        ack.type = ACK;
+        NetworkUtils::send_message(socket, ack);
     }
 
     void Server::broadcast_to_subscribers(const Message &msg) {
@@ -100,7 +214,8 @@ namespace impl {
             return;
         }
 
-        remove_timeout(msg.sender_id);
+        // update the last used timeout
+        remove_timeout(msg);
 
         //cout << "Server broadcasting ---------------------------------" << endl;
         Message fwd_msg = msg;
@@ -127,13 +242,14 @@ namespace impl {
         // obtain lock
         lock_guard<mutex> lock(mu_);
 
-        if (blocked_for_reconfiguration_.find(id) != blocked_for_reconfiguration_.end()) return true;
+        if (blocked_for_reconfiguration_.find(id) != blocked_for_reconfiguration_.end() && blocked_for_reconfiguration_[id]) return true;
         return false;
     }
 
-    void Server::remove_timeout(NodeId id) {
+    void Server::remove_timeout(const Message& msg) {
         // obtain lock
         lock_guard<mutex> lock(mu_);
+        NodeId id = msg.sender_id;
 
         //cout << "[server " << id_ << "] heard from proxy " << id << endl;
         if (proxy_timeouts_[id].size() < 2) {
@@ -145,6 +261,10 @@ namespace impl {
         proxy_timeouts_[id].pop_front();
         last_used_sequence_number_[id] = proxy_timeouts_[id].front();
         proxy_timeouts_[id].pop_front();
+
+        // store the message for durability
+        if (proxy_messages_.find(id) == proxy_messages_.end()) proxy_messages_[id] = deque<Message>();
+        proxy_messages_[id].push_back(msg);
     }
 
     void Server::update_expected_proxy_timeouts(const Message& msg) {
@@ -184,7 +304,7 @@ namespace impl {
                 if (is_blocked(id)) continue;
 
                 mu_.lock();
-                if (!proxy_timeouts_[id].empty() && now >= proxy_timeouts_[id].front() + lag_) {
+                if (blocked_for_reconfiguration_.find(id) == blocked_for_reconfiguration_.end() && !proxy_timeouts_[id].empty() && now >= proxy_timeouts_[id].front() + lag_) {
                     mu_.unlock();
                     report(id);
                 } else {

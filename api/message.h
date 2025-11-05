@@ -14,9 +14,11 @@ namespace api {
         ACK,            // subscriber to server OR server to proxy
         ZIP_REQUEST,    // proxy to zipper
         ZIP_RESPONSE,   // zipper to proxy
-        REPORT,
-        FREEZE,
-        RECONFIGURATION,
+        REPORT,         // report failure
+        FREEZE,         // sent out in rounds (zipper to server)
+        FREEZE_RESPONSE, // repsonse to freeze saying how many messages received after freeze round
+        TRANSFER_REQUEST,       // sent between servers to share message after freeze
+        FREEZE_COMPLETE,
     };
 
     struct Message {
@@ -33,28 +35,39 @@ namespace api {
 
         // Accessors to make intent clear (non-defensive assuming benign failures)
         SequenceNumber get_sequence_number() const {
-            assert(type == APPEND || type == SKIP || type == ACK);
+            assert(type == APPEND || type == SKIP || type == ACK || type == TRANSFER_REQUEST || type == FREEZE_RESPONSE);
+            if (type == TRANSFER_REQUEST || type == FREEZE_RESPONSE) {
+                assert(ordering_values.size() > 1);
+                return ordering_values[1];
+            }
             return seq_or_count;
         }
 
         void set_sequence_number(SequenceNumber seq) {
-            assert(type == APPEND || type == SKIP || type == ACK);
+            assert(type == APPEND || type == SKIP || type == ACK || type == TRANSFER_REQUEST || type == FREEZE_RESPONSE);
+            if (type == TRANSFER_REQUEST || type == FREEZE_RESPONSE) {
+                if (ordering_values.size() < 2) {
+                    ordering_values.resize(2);
+                }
+                ordering_values[1] = seq;
+                return;
+            }
             seq_or_count = seq;
         }
 
         NodeId get_failed_proxy() const {
-            if (type == REPORT) {
+            if (type == REPORT || type == FREEZE_COMPLETE) {
                 return static_cast<NodeId>(seq_or_count);
-            } else if (type == FREEZE) {
+            } else if (type == FREEZE || type == FREEZE_RESPONSE || type == TRANSFER_REQUEST) {
                 return static_cast<NodeId>(ordering_values.front());
             }
             assert(false);
         }
 
         void set_failed_proxy(NodeId id) {
-            if (type == REPORT) {
+            if (type == REPORT || type == FREEZE_COMPLETE) {
                 seq_or_count = static_cast<SequenceNumber>(id);
-            } else if (type == FREEZE) {
+            } else if (type == FREEZE || type == FREEZE_RESPONSE || type == TRANSFER_REQUEST) {
                 ordering_values = {static_cast<SequenceNumber>(id)};
             } else {
                 assert(false);
@@ -62,12 +75,12 @@ namespace api {
         }
 
         void set_round(SequenceNumber round) {
-            assert(type == FREEZE);
+            assert(type == FREEZE || type == FREEZE_RESPONSE || type == TRANSFER_REQUEST);
             seq_or_count = round;
         }
 
-        SequenceNumber get_round() {
-            assert(type == FREEZE);
+        SequenceNumber get_round() const {
+            assert(type == FREEZE || type == FREEZE_RESPONSE || type == TRANSFER_REQUEST);
             return seq_or_count;
         }
 

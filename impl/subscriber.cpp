@@ -12,7 +12,8 @@ namespace impl {
         validate_node_id(subscriber_id, cfg.num_subscribers(), "Subscriber");
         
         // set value of members (we already know ip addr is in our valid range based on parsed config)
-        next_seq_ = 0;
+        log_.push_back(Command());
+        next_seq_ = 1;
         start_listening();
     }
 
@@ -85,7 +86,7 @@ namespace impl {
 
     void Subscriber::print_log() {
         cout << "Current log..." << endl;
-        for (size_t i = 0; i < log_.size(); i++) {
+        for (size_t i = 1; i < log_.size(); i++) {
             cout << "Index " << i << ": " << string(log_[i].begin(), log_[i].end()) << endl;
         }
     }
@@ -105,7 +106,7 @@ namespace impl {
 
         // log is built, print it out
         cout << "-------- expanded log (" << new_log.size() << ") --------" << endl;
-        int i = 0;
+        int i = 1;
         for (const vector<Command>& entry : new_log) {
             cout << "index " << i << ": ";
             for (const Command& c : entry) cout << command_to_string(c);
@@ -114,7 +115,7 @@ namespace impl {
         }
 
         cout << "-------- pending log entries (" << pending_quorum_.size() << ") --------" << endl;
-        i = 0;
+        i = 1;
         for (const auto& [seq, servers] : pending_quorum_) {
             cout << "seq " << seq << ": " << servers.size() << " servers" << endl;
             i++;
@@ -122,7 +123,7 @@ namespace impl {
 
 
         cout << "-------- out of order log entries (" << out_of_order_.size() << ") --------" << endl;
-        i = 0;
+        i = 1;
         for (const auto& [seq, cmd] : out_of_order_) {
             cout << "seq " << seq << ": " << command_to_string(cmd) << endl;
             i++;

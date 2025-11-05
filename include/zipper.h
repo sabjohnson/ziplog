@@ -17,9 +17,12 @@ namespace impl {
             // state for global sequence numbers (currently only using globalSeqNum)
             size_t num_proxies_;
             SequenceNumber global_seq_num_;
-            unordered_map<NodeId, SequenceNumber> proxy_estimates_;
-            unordered_map<NodeId, set<NodeId>> blocked_for_reconfiguration_;
+            unordered_map<NodeId, bool> blocked_for_reconfiguration_;   // false = in process of blocking, true = reconfiguration complete
+            unordered_map<NodeId, SequenceNumber> rounds_;
+            unordered_map<NodeId, set<NodeId>> reported_proxies_;
             unordered_map<NodeId, SequenceNumber> proxy_last_sequence_;
+            unordered_map<NodeId, SequenceNumber> proxy_estimates_;
+            unordered_map<NodeId, vector<SequenceNumber>> proxy_allocated_sequences_;
 
             // epoch tracking
             Timestamp epoch_startup_;

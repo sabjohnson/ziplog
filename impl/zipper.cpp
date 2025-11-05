@@ -11,7 +11,7 @@ namespace impl {
     {
         // global sequencing state
         num_proxies_ = cfg.num_proxies();
-        global_seq_num_ = 0;
+        global_seq_num_ = 1;
 
         // initialize proxy estimate tracker
         for (NodeId i = 0; i < num_proxies_; i++) {
@@ -46,45 +46,129 @@ namespace impl {
     }
 
     void Zipper::request_last_messages(Message &req) {
-        // obtain lock
-        lock_guard<mutex> lock(mu_);
+         // obtain lock
+        mu_.lock();
 
+        // determine if we have already serviced this proxy
         NodeId failed_proxy = req.get_failed_proxy();
+        cout << "[zipper] received report for proxy_id " << failed_proxy << endl;
 
-        // create set if this is the first reporting
-        if (blocked_for_reconfiguration_.find(failed_proxy) == blocked_for_reconfiguration_.end()) {
-            blocked_for_reconfiguration_[failed_proxy] = set<NodeId>();
-            cout << "[zipper] received report for proxy_id " << failed_proxy << endl;
-        } else {
-            cout << "[zipper] received duplicate report for proxy_id " << failed_proxy << endl;
-            return; // return if we already serviced this reconfiguration
+        if (blocked_for_reconfiguration_.find(failed_proxy) != blocked_for_reconfiguration_.end()) {
+            mu_.unlock();
+            return;
         }
 
-        Message report_req;
-        report_req.type = FREEZE;
-        report_req.shard_id = shard();
-        report_req.set_failed_proxy(failed_proxy);
+        // create set if this is the first reporting
+        if (reported_proxies_.find(failed_proxy) == reported_proxies_.end()) {
+            reported_proxies_[failed_proxy] = set<NodeId>();
+        }
 
-        Message report_resp;
-        unordered_map<SequenceNumber, int> sequence_counts;  // seq -> how many servers have it
-        unordered_map<NodeId, SequenceNumber> server_sequences;  // server -> its last seq
+        // add sender to set of reporters
+        reported_proxies_[failed_proxy].insert(req.sender_id);
 
-        for (NodeId i = 0; i < config_.servers.size(); i++) {
-            const auto& [server_ip, server_port] = config_.servers[i];
-            if (NetworkUtils::send_message_to_address(server_ip, server_port, report_req, report_resp, config_.max_retries)) {
-                SequenceNumber last_sequence = report_resp.get_sequence_number();
+        // return if we have not reached quorum on this reportin yet
+        if (reported_proxies_[failed_proxy].size() < config_.quorum()) {
+            mu_.unlock();
+            return;
+        }
 
-                blocked_for_reconfiguration_[failed_proxy].insert(i);
+        // begin freezing
+        if (blocked_for_reconfiguration_.find(failed_proxy) == blocked_for_reconfiguration_.end()) {
+            blocked_for_reconfiguration_[failed_proxy] = false;
+            rounds_[failed_proxy] = 1;
+        }
 
-                server_sequences[i] = last_sequence;
+        mu_.unlock();
 
-                // cout how many servers have at least this sequence
-                for (SequenceNumber seq = 0; seq <= last_sequence; seq++) {
-                    sequence_counts[seq]++;
+        while (true) {
+            mu_.lock();
+            SequenceNumber round = rounds_[failed_proxy];
+            mu_.unlock();
+            set<SequenceNumber> sequences;
+
+            Message freeze;
+            freeze.type = FREEZE;
+            freeze.shard_id = shard();
+            freeze.set_failed_proxy(failed_proxy);
+            freeze.set_round(round);
+
+            size_t responses_received = 0;
+            for (NodeId i = 0; i < config_.servers.size(); i++) {
+                const auto& [server_ip, server_port] = config_.servers[i];
+
+                Message freeze_resp;
+                if (NetworkUtils::send_message_to_address(server_ip, server_port, freeze, freeze_resp, config_.max_retries)) {
+                    cout << "[zipper] got smthn" << endl;
+                            cout << "[zipper] got response from server " << i
+                                 << " type=" << freeze_resp.type
+                                 << " round=" << freeze_resp.get_round()
+                                 << " expected_round=" << round << endl;
+                    if (freeze_resp.type == FREEZE_RESPONSE && freeze_resp.get_round() == round) {
+                        cout << "[zipper] got freeze" << endl;
+                        SequenceNumber last_sequence = freeze_resp.get_sequence_number();
+                        sequences.insert(last_sequence);
+                        responses_received++;
+                    }
                 }
+            }
+
+            if (responses_received < config_.num_servers() - config_.f()) {
+                cout << "[zipper] did not receive quorum responses for round " << round << " responses # was " << responses_received << endl;
+                break;
+            }
+
+            if (sequences.size() == 1) {
+                cout << "[zipper] recovery for proxy " << failed_proxy << " up to seq " << *sequences.begin() << endl;
+
+                mu_.lock();
+                SequenceNumber final_seq = *sequences.begin();
+                vector<SequenceNumber> allocated_seq = proxy_allocated_sequences_[failed_proxy];
+                mu_.unlock();
+
+                for (auto& seq : allocated_seq) {
+                    if (seq > final_seq) {
+                        cout << "[zipper] sending skip for seq " << seq << endl;
+                        // sequence was allocated but never used - send SKIP
+                        Message skip;
+                        skip.type = SKIP;
+                        skip.shard_id = shard();
+                        skip.sender_id = failed_proxy;
+                        skip.set_sequence_number(seq);
+
+                        // bcast SKIP to all servers
+                        for (NodeId i = 0; i < config_.servers.size(); i++) {
+                            const auto& [server_ip, server_port] = config_.servers[i];
+                            Message ack;
+                            NetworkUtils::send_message_to_address(server_ip, server_port, skip, ack, config_.max_retries);
+                        }
+                    }
+                }
+
+                Message freeze_complete;
+                freeze_complete.type = FREEZE_COMPLETE;
+                freeze_complete.shard_id = shard();
+                freeze_complete.set_failed_proxy(failed_proxy);
+
+                for (NodeId i = 0; i < config_.servers.size(); i++) {
+                    const auto& [server_ip, server_port] = config_.servers[i];
+
+                    Message ack;
+                    NetworkUtils::send_message_to_address(server_ip, server_port, freeze_complete, ack, config_.max_retries);
+                }
+
+                mu_.lock();
+                blocked_for_reconfiguration_[failed_proxy] = true;
+                mu_.unlock();
+                break;
+            } else {
+                cout << "[zipper] round " << round << " not converged. " << sequences.size() << " different sequences. Moving to round " << (round + 1) << endl;
+                mu_.lock();
+                rounds_[failed_proxy] = round + 1;
+                mu_.unlock();
             }
         }
 
+/*
         // determine max recoverable number of messages
         SequenceNumber max_recoverable_seq = 0;
         for (const auto& [seq, count] : sequence_counts) {
@@ -109,6 +193,8 @@ namespace impl {
 
         // take note to start reconfiguration later
         proxy_last_sequence_[failed_proxy] = max_recoverable_seq;
+
+        */
     }
 
     void Zipper::update_slot_estimate(Message &req) {
@@ -174,14 +260,14 @@ namespace impl {
 
         cout << "[zipper] ---------------------------PROXY ESTIMATES" << endl;
         for (auto& [proxy_id, est] : proxy_estimates_) {
-            if (blocked_for_reconfiguration_.find(proxy_id) != blocked_for_reconfiguration_.end()) continue;
+            if (reported_proxies_.find(proxy_id) != reported_proxies_.end()) continue;
             cout << "proxy " << proxy_id << ": " << est << endl;
         }
 
         vector<pair<double, NodeId>> timestamps;    // vector or {timestamp, proxy_id}
 
         for (const auto& [proxy_id, estimate] : proxy_estimates_) {
-            if (blocked_for_reconfiguration_.find(proxy_id) != blocked_for_reconfiguration_.end()) continue;
+            if (reported_proxies_.find(proxy_id) != reported_proxies_.end()) continue;
             if (estimate == 0) continue;
 
             double interval = config_.epoch_duration_ms / estimate;
@@ -201,8 +287,10 @@ namespace impl {
         // allocate seq numbers
         unordered_map<NodeId, vector<SequenceNumber>> proxy_sequence_numbers;
         for (const auto& p : timestamps) {
+            SequenceNumber seq_num = global_seq_num_++;
             proxy_sequence_numbers[p.second].push_back(next_epoch_ + p.first);
-            proxy_sequence_numbers[p.second].push_back(global_seq_num_++);
+            proxy_sequence_numbers[p.second].push_back(seq_num);
+            proxy_allocated_sequences_[p.second].push_back(seq_num);
         }
 
         mu_.unlock();

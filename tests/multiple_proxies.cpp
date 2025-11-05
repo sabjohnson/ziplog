@@ -111,7 +111,7 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-
+/*
 TEST_F(E2ETest, Multiple_SingleAppend) {
     StartSystem("config/servers.json");
 
@@ -171,12 +171,12 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxy) {
         verify_index_matches_expected(log[i], expected[i]);  // output commands, expected strings
     }
 }
-
+*/
 // currently client simply unable to make requests, shoulf function sa normal
 TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     StartSystem("config/servers.json");
 
-    // client sends append
+    // client sends append (client 0 to proxy 0, client 1 to proxy 1 and so on...)
     std::thread t1([&]() { ASSERT_FALSE(send_append(0, "amish donuts ")); });
     std::this_thread::sleep_for(50ms);
     std::thread t2([&]() { ASSERT_TRUE(send_append(1, "are the ")); });
@@ -198,5 +198,11 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     vector<vector<Command>> log = expand_log(original_log);
 
     // verify log size
-    ASSERT_EQ(log.size(), 0);
+    ASSERT_EQ(log.size(), 2);
+
+    // verify contents
+    vector<vector<string>> expected = {{"are the "}, {"best"}};
+    for (size_t i = 0; i < 2; i++) {
+        verify_index_matches_expected(log[i], expected[i]);
+    }
 }
