@@ -93,7 +93,7 @@ namespace impl {
 
         // increment number of requests
         request_count_++;
-        cout << "request count: " << request_count_ << endl;
+        //cout << "request count: " << request_count_ << endl;
 
         // take note of client socket (respond after its replicated during epoch interval)
         client_sockets_.push_back(client_socket);
@@ -163,10 +163,10 @@ namespace impl {
                 epoch_startup_ = now_ms();
                 update_slot_estimate();
                 update_next_send();
-                cout << "[ proxy " << id() << "] new epoch for proxy" << endl;
+                //cout << "[ proxy " << id() << "] new epoch for proxy" << endl;
 
             } else if (next_send_ != 0 && now >= next_send_) { // time to send out next batch
-                cout << "[ proxy " << id() << "] updating send time for proxy" << endl;
+                //cout << "[ proxy " << id() << "] updating send time for proxy" << endl;
                 send_out_batch();
                 update_next_send();
             }
@@ -207,7 +207,7 @@ namespace impl {
         zip_req.set_num_requests(slot_estimate_);
 
         Message resp;
-        cout << "req seq: " << zip_req.seq_or_count << endl;
+        //cout << "req seq: " << zip_req.seq_or_count << endl;
 
         NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, resp, config_.max_retries);
     }

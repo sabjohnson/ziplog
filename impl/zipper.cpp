@@ -112,7 +112,7 @@ namespace impl {
                 }
             }
 
-            if (responses_received < config_.num_servers() - config_.f()) {
+            if (responses_received < config_.num_servers() - config_.f) {
                 cout << "[zipper] did not receive quorum responses for round " << round << " responses # was " << responses_received << endl;
                 break;
             }

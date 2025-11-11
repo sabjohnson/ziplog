@@ -125,10 +125,10 @@ namespace impl {
                     break;
                 }
                 if (resp.type == ACK) {
-                    cout << "[server " << id() << "] got ack" << endl;
+                    cout << "[server " << id() << "] got ack from server " << i << endl;
                     break;
                 }
-                cout << "[server " << id() << "] got stored message" << endl;
+                cout << "[server " << id() << "] got stored message w sequence " << resp.get_sequence_number() << endl;
                 broadcast_to_subscribers(resp);
             }
             close(socket);
@@ -164,6 +164,8 @@ namespace impl {
             mu_.unlock();
             Message ack;
             ack.type = ACK;
+            ack.shard_id = shard();
+            ack.sender_id = id();
             NetworkUtils::send_message(socket, ack);
             return;
         }
@@ -180,6 +182,8 @@ namespace impl {
             mu_.unlock();
             Message ack;
             ack.type = ACK;
+            ack.shard_id = shard();
+            ack.sender_id = id();
             ack.set_sequence_number(req_last_seq);
             NetworkUtils::send_message(socket, ack);
             return;
@@ -199,6 +203,8 @@ namespace impl {
 
         Message ack;
         ack.type = ACK;
+        ack.shard_id = shard();
+        ack.sender_id = id();
         NetworkUtils::send_message(socket, ack);
     }
 
@@ -208,9 +214,11 @@ namespace impl {
             cout << "invalid proxy: " << msg.sender_id << endl;
             return;
         }
+        cout << "[server " << id() << "] got message from proxy " << msg.sender_id << endl;
 
         // verify sender was not blocked for reconfiguration
         if (is_blocked(msg.sender_id)) {
+            cout << "was blocked" << endl;
             return;
         }
 
@@ -257,10 +265,16 @@ namespace impl {
             return;
         }
 
-        // remove timeout and sequence number
-        proxy_timeouts_[id].pop_front();
-        last_used_sequence_number_[id] = proxy_timeouts_[id].front();
-        proxy_timeouts_[id].pop_front();
+        if (blocked_for_reconfiguration_.find(id) == blocked_for_reconfiguration_.end()) {
+            // remove timeout and sequence number
+            proxy_timeouts_[id].pop_front();
+            last_used_sequence_number_[id] = proxy_timeouts_[id].front();
+            proxy_timeouts_[id].pop_front();
+        } else {
+            if (last_used_sequence_number_[id] < msg.get_sequence_number()) {
+                last_used_sequence_number_[id] = msg.get_sequence_number();
+            }
+        }
 
         // store the message for durability
         if (proxy_messages_.find(id) == proxy_messages_.end()) proxy_messages_[id] = deque<Message>();
@@ -270,7 +284,7 @@ namespace impl {
     void Server::update_expected_proxy_timeouts(const Message& msg) {
         // obtain lock
         lock_guard<mutex> lock(mu_);
-
+        cout << "[server " << id() << "] updating timeout for proxy " << msg.sender_id << endl;
         // update expected sequences (Timestamp, SequenceNumber, Timestamp, ...)
         proxy_timeouts_[msg.sender_id].insert(proxy_timeouts_[msg.sender_id].end(), msg.ordering_values.begin(), msg.ordering_values.end());
     }
@@ -278,8 +292,8 @@ namespace impl {
     void Server::block_proxy(const Message& msg) {
         // obtain lock
         lock_guard<mutex> lock(mu_);
-
-        blocked_for_reconfiguration_[msg.sender_id] = true;
+        cout << "[server " << id() << "] fully blocking proxy " << msg.get_failed_proxy() << endl;
+        blocked_for_reconfiguration_[msg.get_failed_proxy()] = true;
     }
 
     void Server::shutdown() {

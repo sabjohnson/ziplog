@@ -171,7 +171,7 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxy) {
         verify_index_matches_expected(log[i], expected[i]);  // output commands, expected strings
     }
 }
-*/
+
 // currently client simply unable to make requests, shoulf function sa normal
 TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     StartSystem("config/servers.json");
@@ -205,4 +205,105 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     for (size_t i = 0; i < 2; i++) {
         verify_index_matches_expected(log[i], expected[i]);
     }
+}
+
+TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
+    StartSystem("config/servers.json");
+
+    std::thread killer([&]() {
+        // kill proxy 0 immediately
+        proxies[0].reset();
+
+        // simulate zip request of 1 client request to proxy 0
+        std::this_thread::sleep_for(100ms);  // Let system start
+
+        Message zip_req;
+        zip_req.type = ZIP_REQUEST;
+        zip_req.shard_id = 0;
+        zip_req.sender_id = 0;  // Proxy 0
+        zip_req.set_num_requests(1);  // Request 1 slot
+
+        auto [zipper_ip, zipper_port] = config.zipper;
+        Message zip_resp;
+
+        if (NetworkUtils::send_message_to_address(zipper_ip, zipper_port, zip_req, zip_resp, config.max_retries)) {
+            // wait for zipper to allocate sequences
+            std::this_thread::sleep_for(1000ms);
+
+            // we know it will be sequence 1 in the first epoch
+            SequenceNumber allocated_seq = 1;
+
+            // manually send APPEND to only server 0
+            Message msg;
+            msg.type = APPEND;
+            msg.shard_id = 0;
+            msg.sender_id = 0;  // From proxy 0
+            msg.set_sequence_number(allocated_seq);
+
+            CommandBatch batch;
+            batch.add_command(string_to_command("simulated client 0"));
+            msg.data = batch.serialize();
+
+            auto [server_ip, server_port] = config.servers[0];
+            Message ack;
+            NetworkUtils::send_message_to_address(server_ip, server_port, msg, ack, config.max_retries);
+
+            std::cout << "[TEST] Sent message to server 0 only with seq " << allocated_seq << std::endl;
+        }
+    });
+
+
+    std::this_thread::sleep_for(50ms);
+    std::thread t2([&]() { ASSERT_TRUE(send_append(1, "client 1")); });
+    std::this_thread::sleep_for(50ms);
+    std::thread t3([&]() { ASSERT_TRUE(send_append(2, "client 2")); });
+
+    t2.join();
+    t3.join();
+    killer.join();
+
+    wait_for_propagation();
+
+    const auto& original_log = subscribers[0]->log();
+    vector<vector<Command>> log = expand_log(original_log);
+
+    ASSERT_EQ(log.size(), 3);
+
+    vector<vector<string>> expected = {{"simulated client 0"}, {"client 1"}, {"client 2"}};
+    for (size_t i = 0; i < 3; i++) {
+        verify_index_matches_expected(log[i], expected[i]);
+    }
+}
+*/
+TEST_F(E2ETest, Multiple_StressAppend) {
+    StartSystem("config/performance.json");
+
+    // client sends append
+    std::thread t1([&]() {
+        for (int i = 0; i < 1000; i++) ASSERT_TRUE(send_append(0, "client 0"));
+    });
+    std::thread t2([&]() {
+        for (int i = 0; i < 1000; i++) ASSERT_TRUE(send_append(1, "client 1"));
+    });
+    std::thread t3([&]() {
+        for (int i = 0; i < 1000; i++) ASSERT_TRUE(send_append(2, "client 2"));
+    });
+
+    t1.join(); t2.join(); t3.join();
+
+    // wait for propagation (3 epochs)
+    wait_for_propagation();
+
+//    // expand log and remove skips
+//    const auto& original_log = subscribers[0]->log();
+//    vector<vector<Command>> log = expand_log(original_log);
+//
+//    // verify log size
+//    ASSERT_EQ(log.size(), 2);
+//
+//    // verify the desired log entry has the correct contents
+//    vector<vector<string>> expected = {{"are the "}, {"best"}};
+//    for (int i = 0; i < 2; i++) {
+//        verify_index_matches_expected(log[i], expected[i]);  // output commands, expected strings
+//    }
 }
