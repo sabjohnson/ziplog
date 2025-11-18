@@ -34,6 +34,7 @@ namespace impl {
         void failure_detect();
         void report(NodeId id);
         void remove_timeout(const Message& msg);
+        void introduce_proxy(const Message& msg);
 
        void start_proxy_liveness_checks() {
             failure_detector_thread_ = thread(&Server::failure_detect, this);

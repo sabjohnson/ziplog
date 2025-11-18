@@ -17,6 +17,33 @@ namespace impl {
         start_listening();
     }
 
+
+    Subscriber::Subscriber(NodeId subscriber_id, const ZiplogConfig &cfg, bool registered)
+            : BaseNode(subscriber_id, cfg, cfg.subscribers[subscriber_id].first, cfg.subscribers[subscriber_id].second)
+    {
+        // set value of members (we already know ip addr is in our valid range based on parsed config)
+        log_.push_back(Command());
+        next_seq_ = 1;
+        start_listening();
+
+        // register with zipper
+        Message ack;
+        Message req;
+        req.type = REGISTER_SUBSCRIBER;
+        req.shard_id = shard();
+        req.sender_id = id();
+        string addr_info = ip_address_ + ":" + std::to_string(port_);
+        req.data = Command(addr_info.begin(), addr_info.end());
+
+        Message resp;
+        NetworkUtils::send_message_to_address(
+            config_.zipper.first,
+            config_.zipper.second,
+            req, resp,
+            config_.max_retries
+        );
+    }
+
     void Subscriber::handle_connection(int server_sock) {
         while (running()) {
             // read message

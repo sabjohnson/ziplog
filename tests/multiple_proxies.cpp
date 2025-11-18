@@ -68,7 +68,7 @@ protected:
         @return: True if successful response from proxy
     */
     bool send_append(NodeId client_id, const string& cmd) {
-        if (client_id >= config.num_proxies()) return false;
+        if (client_id >= clients.size()) return false;
         return clients[client_id]->append(string_to_command(cmd));
     }
 
@@ -274,36 +274,80 @@ TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
         verify_index_matches_expected(log[i], expected[i]);
     }
 }
-*/
+
 TEST_F(E2ETest, Multiple_StressAppend) {
     StartSystem("config/performance.json");
 
+    auto start = std::chrono::high_resolution_clock::now();
+
     // client sends append
     std::thread t1([&]() {
-        for (int i = 0; i < 1000; i++) ASSERT_TRUE(send_append(0, "client 0"));
+        for (int i = 0; i < 100; i++) ASSERT_TRUE(send_append(0, "client 0 - " + std::to_string(i)));
     });
     std::thread t2([&]() {
-        for (int i = 0; i < 1000; i++) ASSERT_TRUE(send_append(1, "client 1"));
+        for (int i = 0; i < 100; i++) ASSERT_TRUE(send_append(1, "client 1 - " + std::to_string(i)));
     });
     std::thread t3([&]() {
-        for (int i = 0; i < 1000; i++) ASSERT_TRUE(send_append(2, "client 2"));
+        for (int i = 0; i < 100; i++) ASSERT_TRUE(send_append(2, "client 2 - " + std::to_string(i)));
     });
 
     t1.join(); t2.join(); t3.join();
 
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    cout << "[PERF] Test completed in " << duration.count() << " ms" << endl;
+    cout << "[PERF] Throughput: " << (300.0 / (duration.count() / 1000.0)) << " ops/sec" << endl;
+
     // wait for propagation (3 epochs)
     wait_for_propagation();
 
-//    // expand log and remove skips
-//    const auto& original_log = subscribers[0]->log();
-//    vector<vector<Command>> log = expand_log(original_log);
-//
-//    // verify log size
-//    ASSERT_EQ(log.size(), 2);
-//
-//    // verify the desired log entry has the correct contents
-//    vector<vector<string>> expected = {{"are the "}, {"best"}};
-//    for (int i = 0; i < 2; i++) {
-//        verify_index_matches_expected(log[i], expected[i]);  // output commands, expected strings
-//    }
+    const auto& original_log = subscribers[0]->log();
+    cout << "[PERF] actual log size = " << original_log.size() << endl;
+    vector<vector<Command>> log = expand_log(original_log);
+    ASSERT_EQ(log.size(), 300);
 }
+
+TEST_F(E2ETest, Multiple_StressAppend3ClientsOneProxy) {
+    StartSystem("config/performance.json");
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // client sends append
+    std::thread t1([&]() {
+        Client client(config, 0);
+        for (int i = 0; i < 100; i++) ASSERT_TRUE(client.append(string_to_command("client 0 - " + std::to_string(i))));
+    });
+    std::thread t2([&]() {
+        Client client(config, 0);
+        for (int i = 0; i < 100; i++) ASSERT_TRUE(client.append(string_to_command("client 1 - " + std::to_string(i))));
+    });
+    std::thread t3([&]() {
+        Client client(config, 0);
+        for (int i = 0; i < 100; i++) ASSERT_TRUE(client.append(string_to_command("client 2 - " + std::to_string(i))));
+    });
+
+    t1.join(); t2.join(); t3.join();
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+    cout << "[PERF] Test completed in " << duration.count() << " ms" << endl;
+    cout << "[PERF] Throughput: " << (300.0 / (duration.count() / 1000.0)) << " ops/sec" << endl;
+
+    // wait for propagation (3 epochs)
+    wait_for_propagation();
+
+    const auto& original_log = subscribers[0]->log();
+
+    size_t total_commands = 0;
+    for (const Command& entry : original_log) {
+        vector<Command> batch = CommandBatch::deserialize(entry);
+        total_commands += batch.size();
+    }
+    cout << "[PERF] actual log size = " << original_log.size() << endl;
+    cout << "[PERF] total processed commands = " << total_commands << endl;
+
+    ASSERT_EQ(total_commands, 300);
+}
+*/

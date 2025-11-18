@@ -2,6 +2,7 @@
 #include <algorithm>
 
 using namespace ziplog::api;
+using std::future;
 
 namespace ziplog {
 namespace impl {
@@ -37,6 +38,18 @@ namespace impl {
 
         if (req.type == REPORT) {
             request_last_messages(req);
+        }
+
+        if (req.type == REGISTER_PROXY) {
+            add_proxy(req, true);
+        }
+
+        if (req.type == REGISTER_SUBSCRIBER) {
+            introduce_subscriber(req);
+        }
+
+        if (req.type == REJOIN_PROXY) {
+            add_proxy(req, false);
         }
 
         Message resp;
@@ -227,31 +240,164 @@ namespace impl {
         shutdown();
     }
 
+    void Zipper::add_proxy(const Message& msg, bool is_new) {
+        // deserialize address
+        string addr_info(msg.data.begin(), msg.data.end());
+        size_t colon_pos = addr_info.find(':');
+        string ip = addr_info.substr(0, colon_pos);
+        int port = std::stoi(addr_info.substr(colon_pos + 1));
+
+        // clear tracking data for rejoining proxy
+        if (!is_new) {
+            mu_.lock();
+            NodeId proxy_id = msg.sender_id;
+            blocked_for_reconfiguration_.erase(proxy_id);
+            reported_proxies_.erase(proxy_id);
+            mu_.unlock();
+        }
+
+        // broadcast new proxy to servers
+        Message join;
+        join.type = INCLUDE_PROXY;
+        join.shard_id = shard();
+        join.sender_id = msg.sender_id;
+        join.data = Command(addr_info.begin(), addr_info.end());
+
+        vector<future<bool>> futures;
+        for (size_t i = 0; i < config_.num_servers(); i++) {
+            auto [server_ip, server_port] = config_.servers[i];
+
+            futures.push_back(std::async(std::launch::async, [=]() {
+                Message ack;
+                if (!NetworkUtils::send_message_to_address(server_ip, server_port, join, ack, config_.max_retries)) {
+                    std::cerr << "[zipper] failed to recv ack for proxy " << msg.sender_id << " join from server " << i << std::endl;
+                    return false;
+                }
+                return true;
+            }));
+        }
+
+        size_t successful_sends = 0;
+        for (auto& f : futures) {
+            if (f.get()) successful_sends++;
+        }
+
+        // add address to queue so zipper may respond at epoch boundary
+        if (successful_sends >= config_.quorum()) joining_proxies_.push_back({ip, port});
+    }
+
     void Zipper::epoch_timer() {
         epoch_running_ = true;
         epoch_startup_ = now_ms();
-        next_epoch_ = epoch_startup_ + EPOCH_DURATION_MS;
-
-        const Timestamp allocation_time = (EPOCH_DURATION_MS * 3) / 4;
+        next_epoch_ = epoch_startup_ + config_.epoch_duration_ms;
+        const Timestamp allocation_time = (config_.epoch_duration_ms * 3) / 4;
+        const Timestamp allocation_buffer = std::max(static_cast<Timestamp>(1), config_.epoch_duration_ms / 100);  // 1% of epoch, min 1ms
+        const Timestamp sleep_duration = std::max(static_cast<Timestamp>(1), config_.epoch_duration_ms / 200);
 
         while (epoch_running_) {
             Timestamp now = now_ms();
             Timestamp elapsed = now - epoch_startup_;
 
-            if (elapsed >= allocation_time && elapsed < (allocation_time + 10)) {
+            if (elapsed >= allocation_time && elapsed < (allocation_time + allocation_buffer)) {
                 // allocate slots at 3/4 point
                 allocate_slots();
                 std::this_thread::sleep_for(10ms);
             }
 
-            if (elapsed >= EPOCH_DURATION_MS) {
+            if (elapsed >= config_.epoch_duration_ms) {
+                // let in waiting proxies at epoch boundary
+                std::thread([this]() {
+                    introduce_proxies();
+                }).detach();
                 // restart timer
                 epoch_startup_ = now_ms();
-                next_epoch_ = epoch_startup_ + EPOCH_DURATION_MS;
+                next_epoch_ = epoch_startup_ + config_.epoch_duration_ms;
+
             }
 
-            std::this_thread::sleep_for(5ms);
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
         }
+    }
+
+    void Zipper::introduce_proxies() {
+        // obtain lock
+        mu_.lock();
+        deque<pair<string, int>> proxies_to_add = joining_proxies_;
+        joining_proxies_.clear();
+        mu_.unlock();
+
+        vector<future<void>> futures;
+        for (const auto& [ip, port] : proxies_to_add) {
+            futures.push_back(std::async(std::launch::async, [this, ip, port]() {
+                mu_.lock();
+                config_.proxies.push_back({ip, port});
+                num_proxies_ += 1;
+                mu_.unlock();
+
+                // respond to proxy
+                Message intro;
+                intro.type = INCLUDE_PROXY;
+                intro.shard_id = shard();
+
+                Message ack;
+                NetworkUtils::send_message_to_address(ip, port, intro, ack, config_.max_retries);
+            }));
+        }
+
+        // wait for completion
+        for (auto& f : futures) {
+            f.wait();
+        }
+    }
+
+    void Zipper::introduce_subscriber(const Message& msg) {
+        // deserialize address
+        string addr_info(msg.data.begin(), msg.data.end());
+        size_t colon_pos = addr_info.find(':');
+        string ip = addr_info.substr(0, colon_pos);
+        int port = std::stoi(addr_info.substr(colon_pos + 1));
+
+        // broadcast new subscriber to servers
+        Message join;
+        join.type = INCLUDE_SUBSCRIBER;
+        join.shard_id = shard();
+        join.sender_id = msg.sender_id;
+        join.data = Command(addr_info.begin(), addr_info.end());
+
+        vector<future<bool>> futures;
+        for (size_t i = 0; i < config_.num_servers(); i++) {
+            auto [server_ip, server_port] = config_.servers[i];
+
+            futures.push_back(std::async(std::launch::async, [=]() {
+                Message ack;
+                if (!NetworkUtils::send_message_to_address(server_ip, server_port, join, ack, config_.max_retries)) {
+                    std::cerr << "[zipper] failed to recv ack for subscriber " << msg.sender_id << " join from server " << i << std::endl;
+                    return false;
+                }
+                return true;
+            }));
+        }
+
+        size_t successful_sends = 0;
+        for (auto& f : futures) {
+            if (f.get()) successful_sends++;
+        }
+
+        // add subscriber to config and
+        if (successful_sends < config_.quorum()) return;
+
+        // add subscriber to config
+        mu_.lock();
+        config_.subscribers.push_back({ip, port});
+        mu_.unlock();
+
+        // send response to subscriber
+        Message intro;
+        intro.type = INCLUDE_SUBSCRIBER;
+        intro.shard_id = shard();
+
+        Message ack;
+        NetworkUtils::send_message_to_address(ip, port, intro, ack, config_.max_retries);
     }
 
     void Zipper::allocate_slots() {

@@ -20,7 +20,7 @@ namespace impl {
         start_listening();
         start_proxy_liveness_checks();
     }
-    
+
     void Server::handle_connection(int proxy_socket) {
         while (is_running_) {
             // recv message from proxy
@@ -34,14 +34,25 @@ namespace impl {
 
             // process message from proxies
             if (msg.type == APPEND || msg.type == SKIP) {
-                broadcast_to_subscribers(msg);
+                // store the message for durability
+                NodeId id = msg.sender_id;
+                mu_.lock();
+                if (proxy_messages_.find(id) == proxy_messages_.end()) proxy_messages_[id] = deque<Message>();
+                proxy_messages_[id].push_back(msg);
+                mu_.unlock();
 
+                // send ack
                 Message ack_msg;
                 ack_msg.type = ACK;
                 ack_msg.shard_id = shard();
-                ack_msg.sender_id = id();
+                ack_msg.sender_id = this->id();
                 ack_msg.set_sequence_number(msg.get_sequence_number());
                 NetworkUtils::send_message(proxy_socket, ack_msg);
+
+                // begin replication
+                std::thread([this, msg]() {
+                    broadcast_to_subscribers(msg);
+                }).detach();
             }
 
             else if (msg.type == ZIP_RESPONSE) {
@@ -71,8 +82,57 @@ namespace impl {
                 ack_msg.sender_id = id();
                 NetworkUtils::send_message(proxy_socket, ack_msg);
             }
+
+            else if (msg.type == INCLUDE_PROXY) {
+                introduce_proxy(msg);
+
+                Message ack_msg;
+                ack_msg.type = ACK;
+                ack_msg.shard_id = shard();
+                ack_msg.sender_id = id();
+                NetworkUtils::send_message(proxy_socket, ack_msg);
+            }
+
+            else if (msg.type == INCLUDE_SUBSCRIBER) {
+                // deserialize address
+                string addr_info(msg.data.begin(), msg.data.end());
+                size_t colon_pos = addr_info.find(':');
+                string ip = addr_info.substr(0, colon_pos);
+                int port = std::stoi(addr_info.substr(colon_pos + 1));
+
+               mu_.lock();
+               config_.subscribers.push_back({ip, port});
+               mu_.unlock();
+
+                Message ack_msg;
+                ack_msg.type = ACK;
+                ack_msg.shard_id = shard();
+                ack_msg.sender_id = id();
+                NetworkUtils::send_message(proxy_socket, ack_msg);
+            }
         }
         close(proxy_socket);
+    }
+
+    void Server::introduce_proxy(const Message& msg) {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+
+        // deserialize address
+        string addr_info(msg.data.begin(), msg.data.end());
+        size_t colon_pos = addr_info.find(':');
+        string ip = addr_info.substr(0, colon_pos);
+        int port = std::stoi(addr_info.substr(colon_pos + 1));
+
+        NodeId proxy_id = msg.sender_id;
+
+        if (!config_.isValidProxy(proxy_id)) {  // new proxy
+            config_.proxies.push_back({ip, port});
+        } else {                                // rejoining proxy
+            blocked_for_reconfiguration_.erase(proxy_id);
+            proxy_timeouts_[proxy_id] = deque<Timestamp>();
+            last_used_sequence_number_.erase(proxy_id);
+        }
     }
 
     void Server::handle_freeze(int zip_socket, const Message &msg) {
@@ -128,7 +188,14 @@ namespace impl {
                     cout << "[server " << id() << "] got ack from server " << i << endl;
                     break;
                 }
+
+                // store the message for durability
+                mu_.lock();
                 cout << "[server " << id() << "] got stored message w sequence " << resp.get_sequence_number() << endl;
+                if (proxy_messages_.find(failed_proxy) == proxy_messages_.end()) proxy_messages_[failed_proxy] = deque<Message>();
+                proxy_messages_[failed_proxy].push_back(resp);
+                mu_.unlock();
+
                 broadcast_to_subscribers(resp);
             }
             close(socket);
@@ -229,7 +296,7 @@ namespace impl {
         Message fwd_msg = msg;
         fwd_msg.sender_id = id();
 
-        vector<future<void>> futures;
+        vector<future<bool>> futures;
         for (size_t i = 0; i < config_.num_subscribers(); i++) {
             auto [subscriber_ip, subscriber_port] = config_.subscribers[i];
 
@@ -237,13 +304,18 @@ namespace impl {
                 Message ack;
                 if (!NetworkUtils::send_message_to_address(subscriber_ip, subscriber_port, fwd_msg, ack, config_.max_retries)) {
                     std::cerr << "Server " << id_ << " failed to deliver to subscriber " << i << " after " << config_.max_retries << " attempts" << std::endl;
+                    return false;
                 }
+                return true;
             }));
         }
 
+        size_t successful_sends = 0;
         for (auto& f : futures) {
-            f.wait();
+            if (f.get()) successful_sends++;
         }
+
+        cout << "[server " << id() << "] broadcast seq=" << msg.get_sequence_number() << " successful sends=" << successful_sends << "/" << config_.num_subscribers() << endl;
     }
 
     bool Server::is_blocked(NodeId id) {
@@ -275,16 +347,12 @@ namespace impl {
                 last_used_sequence_number_[id] = msg.get_sequence_number();
             }
         }
-
-        // store the message for durability
-        if (proxy_messages_.find(id) == proxy_messages_.end()) proxy_messages_[id] = deque<Message>();
-        proxy_messages_[id].push_back(msg);
     }
 
     void Server::update_expected_proxy_timeouts(const Message& msg) {
         // obtain lock
         lock_guard<mutex> lock(mu_);
-        cout << "[server " << id() << "] updating timeout for proxy " << msg.sender_id << endl;
+
         // update expected sequences (Timestamp, SequenceNumber, Timestamp, ...)
         proxy_timeouts_[msg.sender_id].insert(proxy_timeouts_[msg.sender_id].end(), msg.ordering_values.begin(), msg.ordering_values.end());
     }
@@ -320,6 +388,7 @@ namespace impl {
                 mu_.lock();
                 if (blocked_for_reconfiguration_.find(id) == blocked_for_reconfiguration_.end() && !proxy_timeouts_[id].empty() && now >= proxy_timeouts_[id].front() + lag_) {
                     mu_.unlock();
+                    cout << "[server " << this->id() << "] report proxy " << id << " time is " << now << " expected msg at " << proxy_timeouts_[id].front() + lag_ << endl;
                     report(id);
                 } else {
                     mu_.unlock();

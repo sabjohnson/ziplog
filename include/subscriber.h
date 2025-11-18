@@ -26,6 +26,7 @@ namespace impl {
 
         public:
             Subscriber(NodeId subscriber_id, const ZiplogConfig& cfg);
+            Subscriber(NodeId subscriber_id, const ZiplogConfig& cfg, bool registered);
             void shutdown() override;
             ~Subscriber();
 

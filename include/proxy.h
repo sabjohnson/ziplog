@@ -10,22 +10,23 @@ namespace impl {
 
    class Proxy : public BaseNode {
        private:
+           atomic<bool> registered_ = true;
+
            // slot allocation
-           SequenceNumber request_count_;           // how many requests a proxy received during this epoch
+           SequenceNumber request_count_ = 0;           // how many requests a proxy received during this epoch
            deque<SequenceNumber> estimate_history_; // dequeue of request_count for the last couple epochs
 
            // sequence numbers and interval scheduling
-           size_t cur_sequences_size_;              // number of sequence numbers allocated
-           deque<SequenceNumber> sequences_;      // sequence numbers allocated
-           uint32_t BATCH_INTERVAL;
+           deque<SequenceNumber> sequences_;        // sequence numbers allocated
+           deque<Timestamp> timeouts_;              // time outs for the corresponding sequnec number
+           Timestamp next_send_ = 0;                    // timestamp of next timeouts for sending a batch (is 0 if no slots allocated)
 
            // client request information (commands and sockets)
-           deque<Command> batch_values_;          // the actual command
+           deque<Command> batch_values_;            // the actual command
            deque<int> client_sockets_;              // so you can respond after sending batch
 
            // epoch tracking
            Timestamp epoch_startup_;
-           Timestamp next_send_;
 
            // threading
            mutex mu_;
@@ -48,7 +49,9 @@ namespace impl {
           
        public:
            Proxy(NodeId proxy_id, const ZiplogConfig& config);
+           Proxy(NodeId proxy_id, const ZiplogConfig& config, bool registered);
            void shutdown() override;
            ~Proxy();
+           void attempt_join(bool is_new);
    };
 }}

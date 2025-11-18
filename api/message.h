@@ -19,6 +19,11 @@ namespace api {
         FREEZE_RESPONSE, // repsonse to freeze saying how many messages received after freeze round
         TRANSFER_REQUEST,       // sent between servers to share message after freeze
         FREEZE_COMPLETE,
+        REGISTER_PROXY, // new proxy trying to join system (send to zipper)
+        REJOIN_PROXY,   // proxy attempting to reintegrate in system (send to zipper)
+        INCLUDE_PROXY,  // zipper to all other
+        REGISTER_SUBSCRIBER, // new proxy trying to join system (send to zipper)
+        INCLUDE_SUBSCRIBER,     // zipper to other servers to include subscriber
     };
 
     struct Message {

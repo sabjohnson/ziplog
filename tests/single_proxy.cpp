@@ -63,7 +63,7 @@ protected:
         @return: True if successful response from proxy
     */
     bool send_append(NodeId client_id, const string& cmd) {
-        if (client_id >= config.num_proxies()) return false;
+        if (client_id >= clients.size()) return false;
         return clients[client_id]->append(string_to_command(cmd));
     }
 

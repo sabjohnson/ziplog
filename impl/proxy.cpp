@@ -21,12 +21,21 @@ namespace impl {
 
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         request_count_ = 0;
-        cur_sequences_size_ = 0;
         next_send_ = 0;
-
 
         start_listening();
         start_epochs();
+    }
+
+    Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg, bool registered)
+        : BaseNode(proxy_id, cfg, cfg.proxies[proxy_id].first, cfg.proxies[proxy_id].second)
+    {
+        if (!registered) {
+            registered_ = registered;
+        }
+
+        attempt_join(true);
+        start_listening();
     }
 
     void Proxy::shutdown() {
@@ -73,10 +82,32 @@ namespace impl {
         resp.type = ACK;
 
         if (req.type == APPEND) {
-            handle_append(client_socket, req.data);
-            return;
+            if (registered_) {
+                handle_append(client_socket, req.data);
+                return;
+            } else {
+                cout << "[proxy " << id() << "] not registered yet" << endl;
+                Message resp;
+                resp.type = FAILURE;
+                NetworkUtils::send_message(client_socket, resp);
+                close(client_socket);
+                return;
+            }
         } else if (req.type == ZIP_RESPONSE) {
             handle_zip_response(req);
+        }
+
+        else if (req.type == INCLUDE_PROXY) {
+            if (!registered_) {
+                registered_ = true;
+                start_epochs();
+                cout << "[proxy " << id() << "] ------------------------------------- joining the system" << endl;
+            }
+        }
+
+        else if (req.type == FREEZE) {
+            registered_ = false;
+            attempt_join(false);
         }
 
         // send response
@@ -126,23 +157,38 @@ namespace impl {
 
     void Proxy::handle_zip_response(Message& msg) {
         // obtain lock
-        mu_.lock();
+        lock_guard<mutex> lock(mu_);
 
         // validate zip response
         if (msg.shard_id != shard()) return;
 
-        // take note of number of allocated slots
-        cur_sequences_size_ += msg.get_num_requests();
         cout << "[proxy "  << id() << "] got " << msg.get_num_requests() << " slots from the zipper" << endl;
 
-        // add new sequence numbers to your pool
-        sequences_.insert(sequences_.end(), msg.ordering_values.begin(), msg.ordering_values.end());
+        // add new sequence numbers/timeouts to your pool
+        for (size_t i = 0; i < msg.ordering_values.size(); i++) {
+            if (i % 2 == 0) timeouts_.push_back(msg.ordering_values[i]);
+            else sequences_.push_back(msg.ordering_values[i]);
+        }
 
-        // release lock
-        mu_.unlock();
+        if (timeouts_.size() > 0) next_send_ = timeouts_.front();
+    }
 
-        // update next_send_update
-        update_next_send();
+    void Proxy::attempt_join(bool is_new) {
+        Message req;
+        req.type = is_new ? REGISTER_PROXY : REJOIN_PROXY;
+        req.shard_id = shard();
+        if (!is_new) req.sender_id = id();
+
+        string addr_info = ip_address_ + ":" + std::to_string(port_);
+        req.data = Command(addr_info.begin(), addr_info.end());
+
+        Message resp;
+        NetworkUtils::send_message_to_address(
+            config_.zipper.first,
+            config_.zipper.second,
+            req, resp,
+            config_.max_retries
+        );
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -150,28 +196,31 @@ namespace impl {
      ----------------------------------------------------------------------------------------------------------------------- */
 
     void Proxy::epoch_timer() {
+        cout << "[proxy " << id() << "] calling epoch_timer " << endl;
         epoch_running_ = true;
         epoch_startup_ = now_ms();
-        update_next_send();
+        const Timestamp sleep_duration = std::max(static_cast<Timestamp>(1), config_.epoch_duration_ms / 200);
 
         while (epoch_running_) {
             Timestamp now = now_ms();
             Timestamp elapsed = now - epoch_startup_;
 
-            if (elapsed >= config_.epoch_duration_ms) { // full epoch elapsed
-                // restart state
-                epoch_startup_ = now_ms();
-                update_slot_estimate();
-                update_next_send();
-                //cout << "[ proxy " << id() << "] new epoch for proxy" << endl;
+            if (registered_) {
+                if (elapsed >= config_.epoch_duration_ms) { // full epoch elapsed
+                    // restart state
+                    epoch_startup_ = now_ms();
+                    update_slot_estimate();
+                    //cout << "[ proxy " << id() << "] new epoch for proxy" << endl;
 
-            } else if (next_send_ != 0 && now >= next_send_) { // time to send out next batch
-                //cout << "[ proxy " << id() << "] updating send time for proxy" << endl;
-                send_out_batch();
-                update_next_send();
+                } else if (next_send_ != 0 && now >= next_send_) { // time to send out next batch
+                    //cout << "[ proxy " << id() << "] updating send time for proxy" << endl;
+                    std::thread([this]() {
+                        send_out_batch();
+                    }).detach();
+                }
             }
 
-            std::this_thread::sleep_for(5ms);
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
         }
     }
 
@@ -181,6 +230,7 @@ namespace impl {
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
+        if (id() == 1) cout << "request count = " << request_count_ << endl;
         if (estimate_history_.size() > static_cast<long unsigned int>(config_.max_epoch_history)) {
             estimate_history_.pop_front();
         }
@@ -212,33 +262,12 @@ namespace impl {
         NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, resp, config_.max_retries);
     }
 
-    void Proxy::update_next_send() {
-        // obtain lock
-        lock_guard<mutex> lock(mu_);
-
-        // return if we don't need to update yet
-        Timestamp now = now_ms();
-        if (next_send_ != 0 && now < next_send_) return;
-
-        // get the next time we are working at
-        Timestamp next = 0;
-        if (cur_sequences_size_) {
-            next = sequences_.front();  // get timestamp
-            sequences_.pop_front(); // pop timestamp from sequences
-        }
-        next_send_ = next;
-
-        if (!next_send_) {
-            //cout << "Zipper did not allocate slots for proxy " << id() << " this epoch" << endl;
-        }
-    }
-
     void Proxy::send_out_batch() {
         // obtain lock
         mu_.lock();
 
         // don't send anything out if you don't have any sequence numbers
-        if (sequences_.empty()) {
+        if (next_send_ == 0) {
             //cout << "no sequences..." << endl;
             mu_.unlock();
             return;
@@ -249,7 +278,7 @@ namespace impl {
         msg.type = APPEND;
         msg.shard_id = shard();
         msg.sender_id = id();
-        msg.set_sequence_number(sequences_.front());
+        msg.set_sequence_number(sequences_.front());    // seq number
 
         // add commands to batch
         CommandBatch batch;
@@ -267,10 +296,13 @@ namespace impl {
         deque<int> clients_to_respond = client_sockets_;
 
         // clear pending commands/client sockets (they have now been handled)
-        sequences_.pop_front(); // removed used sequence number
-        cur_sequences_size_--;  // update number of usable sequence numbers
         batch_values_.clear();
         client_sockets_.clear();
+        sequences_.pop_front(); // removed used sequence number
+        timeouts_.pop_front();
+
+        if (timeouts_.size() > 0) next_send_ = timeouts_.front();
+        else next_send_ = 0;
 
         mu_.unlock();
 

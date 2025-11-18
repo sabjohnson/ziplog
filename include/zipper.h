@@ -1,7 +1,10 @@
 #pragma once
 #include "base_node.h"
+#include <future>
+#include <deque>
 
 using namespace ziplog::api;
+using std::deque;
 
 namespace ziplog {
 namespace impl {
@@ -24,6 +27,9 @@ namespace impl {
             unordered_map<NodeId, SequenceNumber> proxy_estimates_;
             unordered_map<NodeId, vector<SequenceNumber>> proxy_allocated_sequences_;
 
+            // reconfiguration
+            deque<pair<string, int>> joining_proxies_;
+
             // epoch tracking
             Timestamp epoch_startup_;
             Timestamp next_epoch_;
@@ -43,6 +49,9 @@ namespace impl {
             void request_last_messages(Message &msg);
             void allocate_slots();                  // sort timestamp and give global sequence numbers
             void deliver_slot_allocation(NodeId proxy_id, const vector<SequenceNumber>& values);
+            void add_proxy(const Message& msg, bool is_new);
+            void introduce_proxies();
+            void introduce_subscriber(const Message& msg);
 
         public:
             Zipper(const ZiplogConfig& cfg);
