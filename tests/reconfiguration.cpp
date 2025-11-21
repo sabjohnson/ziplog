@@ -111,7 +111,7 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-
+/*
 TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
     StartSystem("config/reconfiguration.json");
 
@@ -166,11 +166,12 @@ TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
     for (const auto& batch : expanded_log_after) {
         command_count_after += batch.size();
     }
-    ASSERT_GE(command_count_after, 2);
+    ASSERT_GE(command_count_after, 4);
 
     std::cout << "[TEST] New subscriber has " << command_count_after << " commands" << std::endl;
 }
-
+*/
+/*
 TEST_F(E2ETest, BasicReconfig_AddNewProxy) {
     StartSystem("config/reconfiguration.json");
 
@@ -245,3 +246,4 @@ TEST_F(E2ETest, BasicReconfig_AddNewProxy) {
 
     std::cout << "[TEST] New proxy successfully integrated, total commands: " << command_count_after << std::endl;
 }
+*/

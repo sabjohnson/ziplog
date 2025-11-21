@@ -102,6 +102,7 @@ namespace impl {
 
                mu_.lock();
                config_.subscribers.push_back({ip, port});
+               unordered_map<NodeId, deque<Message>> messages_copy = proxy_messages_;
                mu_.unlock();
 
                 Message ack_msg;
@@ -109,6 +110,19 @@ namespace impl {
                 ack_msg.shard_id = shard();
                 ack_msg.sender_id = id();
                 NetworkUtils::send_message(proxy_socket, ack_msg);
+
+                // send all stored messages
+                for (const auto& [proxy_id, messages] : messages_copy) {
+                    if (is_blocked(proxy_id)) continue;
+
+                    for (const auto& stored_msg : messages) {
+                        Message fwd_msg = stored_msg;
+                        fwd_msg.sender_id = id();
+
+                        Message ack;
+                        NetworkUtils::send_message_to_address(ip, port, fwd_msg, ack, config_.max_retries);
+                    }
+                }
             }
         }
         close(proxy_socket);
