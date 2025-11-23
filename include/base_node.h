@@ -10,23 +10,16 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
+    template <typename ConfigType> // https://www.geeksforgeeks.org/cpp/templates-cpp/
     class BaseNode {
     protected:
-        ZiplogConfig config_;
-        ShardId shard_id_;
-        NodeId id_;
-        string ip_address_;
-        int port_;
+        ConfigType config_;
         atomic<bool> is_running_;
         int sock_;
         thread running_thread_;
 
-         BaseNode(NodeId id, const ZiplogConfig &cfg, const string& ip, int p)
+         BaseNode(const ConfigType& cfg)
             : config_(cfg)
-            , shard_id_(0)
-            , id_(id)
-            , ip_address_(ip)
-            , port_(p)
             , is_running_(false)
             , sock_(-1)
         {}
@@ -49,16 +42,17 @@ namespace impl {
             }
 
             // create listening socket
-            sock_ = NetworkUtils::create_listening_socket(ip_address_, port_, true);
+            sock_ = NetworkUtils::create_listening_socket(config_.address.ip, config_.address.port, true);
             if (sock_ < 0) {
                 //std::cerr << "failed to create server socket" << std::endl;
-                cerr << "failed to create server socket on " << ip_address_ << ":" << port_
+                cerr << "failed to create server socket on " << config_.address.ip << ":" << config_.address.port
                     << " - " << strerror(errno) << std::endl;
+                is_running_ = false;
                 return;
             }
 
             // handle connections
-            std::cout << "listening on " << ip_address_ << ":" << port_ << std::endl;
+            std::cout << "listening on " << config_.address.ip << ":" << config_.address.port << std::endl;
             is_running_ = true;
             while (is_running_) {
                 struct sockaddr_in client_addr;
@@ -84,11 +78,23 @@ namespace impl {
 
     public:
         ShardId shard() const {
-            return shard_id_;
+            return config_.shard;
         }
 
         NodeId id() const {
-            return id_;
+            return config_.id;
+        }
+
+        Address address() const {
+            return config_.address;
+        }
+
+        size_t quorum() const {
+            return config_.f + 1;
+        }
+
+        int f() const {
+            return config_.f;
         }
 
         bool running() const {

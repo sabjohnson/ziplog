@@ -15,10 +15,9 @@ namespace impl {
         int proxy_socket;
     };
 
-    class Zipper: public BaseNode {
+    class Zipper: public BaseNode<ZipperConfig> {
         private:
             // state for global sequence numbers (currently only using globalSeqNum)
-            size_t num_proxies_;
             SequenceNumber global_seq_num_;
             unordered_map<NodeId, bool> blocked_for_reconfiguration_;   // false = in process of blocking, true = reconfiguration complete
             unordered_map<NodeId, SequenceNumber> rounds_;
@@ -54,9 +53,21 @@ namespace impl {
             void introduce_subscriber(const Message& msg);
 
         public:
-            Zipper(const ZiplogConfig& cfg);
+            Zipper(const ZipperConfig& cfg);
             void shutdown() override;
             ~Zipper();
+
+            size_t num_proxies() const {
+                return config_.proxies.size();
+            }
+
+            size_t num_servers() const {
+                return config_.servers.size();
+            }
+
+            size_t num_subscribers() const {
+                return config_.subscribers.size();
+            }
     };
 
 }}

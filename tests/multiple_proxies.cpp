@@ -25,21 +25,21 @@ protected:
         config = parse_config(filename);
 
         // start all components
-        zipper = std::make_unique<Zipper>(config);
+        zipper = std::make_unique<Zipper>(config.make_zipper_config());
         std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_subscribers(); i++) {
-            subscribers.push_back(std::make_unique<Subscriber>(i, config));
+            subscribers.push_back(std::make_unique<Subscriber>(config.make_subscriber_config(i)));
         }
         std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_servers(); i++) {
-            servers.push_back(std::make_unique<Server>(i, config));
+            servers.push_back(std::make_unique<Server>(config.make_server_config(i)));
         }
         std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_proxies(); i++) {
-            proxies.push_back(std::make_unique<Proxy>(i, config));
+            proxies.push_back(std::make_unique<Proxy>(config.make_proxy_config(i)));
         }
 
         for (size_t i = 0; i < config.num_proxies(); i++) {

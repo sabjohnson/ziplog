@@ -9,7 +9,7 @@ namespace impl {
         : config_(cfg)
         , proxy_id_(proxy_id)
     {
-        validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
+        //validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
     }
 
     bool Client::append(const Command& data) {

@@ -77,20 +77,4 @@ namespace api {
     inline Timestamp timestamp_to_ms(const system_clock::time_point& tp) {
         return duration_cast<milliseconds>(tp.time_since_epoch()).count();
     }
-
-    // validation
-
-    /*
-        @brief: Takes node id and determines if it is in valid range for config.
-        @param id: Id to be validated.
-        @param max_size: Non-inclusive boundary for node id.
-        @param node_type: Type of node being validated.
-        @throws: std::invalid_argument if id is out of range.
-    */
-    template<typename T>
-    void validate_node_id(T id, size_t max_size, const string& node_type) {
-        if (id < 0 || static_cast<size_t>(id) >= max_size) {
-            throw std::invalid_argument(node_type + " id " + std::to_string(id) + " out of range [0, " + std::to_string(max_size) + ")");
-        }
-    }
 }}

@@ -8,7 +8,7 @@ using std::deque;
 namespace ziplog {
 namespace impl {
 
-   class Proxy : public BaseNode {
+   class Proxy : public BaseNode<ProxyConfig> {
        private:
            atomic<bool> registered_ = true;
 
@@ -48,10 +48,14 @@ namespace impl {
            bool replicate_on_quorum(Message& msg);
           
        public:
-           Proxy(NodeId proxy_id, const ZiplogConfig& config);
-           Proxy(NodeId proxy_id, const ZiplogConfig& config, bool registered);
+           Proxy(const ProxyConfig& config);
+           Proxy(const ProxyConfig& config, bool registered);
            void shutdown() override;
            ~Proxy();
            void attempt_join(bool is_new);
+
+           size_t num_servers() const {
+               return config_.servers.size();
+           }
    };
 }}

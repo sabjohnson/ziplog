@@ -25,21 +25,21 @@ protected:
         config = parse_config(filename);
 
         // start all components
-        zipper = std::make_unique<Zipper>(config);
+        zipper = std::make_unique<Zipper>(config.make_zipper_config());
         std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_subscribers(); i++) {
-            subscribers.push_back(std::make_unique<Subscriber>(i, config));
+            subscribers.push_back(std::make_unique<Subscriber>(config.make_subscriber_config(i)));
         }
         std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_servers(); i++) {
-            servers.push_back(std::make_unique<Server>(i, config));
+            servers.push_back(std::make_unique<Server>(config.make_server_config(i)));
         }
         std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_proxies(); i++) {
-            proxies.push_back(std::make_unique<Proxy>(i, config));
+            proxies.push_back(std::make_unique<Proxy>(config.make_proxy_config(i)));
         }
 
         for (size_t i = 0; i < config.num_proxies(); i++) {
@@ -111,7 +111,7 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-/*
+
 TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
     StartSystem("config/reconfiguration.json");
 
@@ -138,15 +138,19 @@ TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
     subscribers[0].reset();
 
     std::this_thread::sleep_for(200ms);
-
-    // Add new subscriber at a new address
-    auto new_sub_config = config;
     string new_ip = "127.0.0.1";
     int new_port = 9000;
-    new_sub_config.subscribers[0] = {new_ip, new_port};
+
+    // Add new subscriber at a new address
+    SubscriberConfig new_sub_config;
+    new_sub_config.zipper = config.zipper;
+    new_sub_config.address = Address(new_ip, new_port);
+    new_sub_config.f = config.f;
+    new_sub_config.max_retries = config.max_retries;
+    new_sub_config.servers = config.servers;
 
     std::cout << "[TEST] Adding new subscriber at " << new_ip << ":" << new_port << std::endl;
-    subscribers[0] = std::make_unique<Subscriber>(0, new_sub_config, false);
+    subscribers[0] = std::make_unique<Subscriber>(new_sub_config, false);
 
     wait_for_propagation(3);
 
@@ -170,8 +174,7 @@ TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
 
     std::cout << "[TEST] New subscriber has " << command_count_after << " commands" << std::endl;
 }
-*/
-/*
+
 TEST_F(E2ETest, BasicReconfig_AddNewProxy) {
     StartSystem("config/reconfiguration.json");
 
@@ -196,15 +199,24 @@ TEST_F(E2ETest, BasicReconfig_AddNewProxy) {
     // Add a new proxy dynamically
     string new_proxy_ip = "127.0.0.1";
     int new_proxy_port = 10000;
+    int new_proxy_id = config.num_proxies();
 
-    auto new_proxy_config = config;
-    NodeId new_proxy_id = config.num_proxies();
-    new_proxy_config.proxies.push_back({new_proxy_ip, new_proxy_port});
+    ProxyConfig new_proxy_config;
+    new_proxy_config.id = new_proxy_id;
+    new_proxy_config.shard = 0;
+    new_proxy_config.address = Address(new_proxy_ip, new_proxy_port);
+    new_proxy_config.f = config.f;
+    new_proxy_config.max_retries = config.max_retries;
+    new_proxy_config.max_epoch_history = config.max_epoch_history;
+    new_proxy_config.epoch_duration_ms = config.epoch_duration_ms;
+    new_proxy_config.zipper = config.zipper;
+    new_proxy_config.servers = config.servers;
 
     std::cout << "[TEST] Adding new proxy " << new_proxy_id << " at " << new_proxy_ip << ":" << new_proxy_port << std::endl;
 
-    proxies.push_back(std::make_unique<Proxy>(new_proxy_id, new_proxy_config, false));
-    clients.push_back(std::make_unique<Client>(new_proxy_config, new_proxy_id));
+    proxies.push_back(std::make_unique<Proxy>(new_proxy_config, false));
+    config.proxies.push_back(Address(new_proxy_ip, new_proxy_port));
+    clients.push_back(std::make_unique<Client>(config, new_proxy_id));
 
     wait_for_propagation(4);
 
@@ -246,4 +258,3 @@ TEST_F(E2ETest, BasicReconfig_AddNewProxy) {
 
     std::cout << "[TEST] New proxy successfully integrated, total commands: " << command_count_after << std::endl;
 }
-*/

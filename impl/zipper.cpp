@@ -7,15 +7,14 @@ using std::future;
 namespace ziplog {
 namespace impl {
 
-    Zipper::Zipper(const ZiplogConfig& cfg) :
-        BaseNode(0, cfg, cfg.zipper.first, cfg.zipper.second)
+    Zipper::Zipper(const ZipperConfig& cfg) :
+        BaseNode<ZipperConfig>(cfg)
     {
         // global sequencing state
-        num_proxies_ = cfg.num_proxies();
         global_seq_num_ = 1;
 
         // initialize proxy estimate tracker
-        for (NodeId i = 0; i < num_proxies_; i++) {
+        for (NodeId i = 0; i < cfg.proxies.size(); i++) {
             proxy_estimates_[i] = 0;
         }
 
@@ -80,7 +79,7 @@ namespace impl {
         reported_proxies_[failed_proxy].insert(req.sender_id);
 
         // return if we have not reached quorum on this reportin yet
-        if (reported_proxies_[failed_proxy].size() < config_.quorum()) {
+        if (reported_proxies_[failed_proxy].size() < quorum()) {
             mu_.unlock();
             return;
         }
@@ -125,7 +124,7 @@ namespace impl {
                 }
             }
 
-            if (responses_received < config_.num_servers() - config_.f) {
+            if (responses_received < num_servers() - f()) {
                 cout << "[zipper] did not receive quorum responses for round " << round << " responses # was " << responses_received << endl;
                 break;
             }
@@ -212,7 +211,9 @@ namespace impl {
 
     void Zipper::update_slot_estimate(Message &req) {
         // validate request
+        cout << "[zipper] recv proxy request" << endl;
         if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id)) {
+            cout << "unknown prpoxy" << endl;
             return;
         }
 
@@ -264,7 +265,7 @@ namespace impl {
         join.data = Command(addr_info.begin(), addr_info.end());
 
         vector<future<bool>> futures;
-        for (size_t i = 0; i < config_.num_servers(); i++) {
+        for (size_t i = 0; i < num_servers(); i++) {
             auto [server_ip, server_port] = config_.servers[i];
 
             futures.push_back(std::async(std::launch::async, [=]() {
@@ -283,7 +284,7 @@ namespace impl {
         }
 
         // add address to queue so zipper may respond at epoch boundary
-        if (successful_sends >= config_.quorum()) joining_proxies_.push_back({ip, port});
+        if (successful_sends >= quorum()) joining_proxies_.push_back({ip, port});
     }
 
     void Zipper::epoch_timer() {
@@ -331,7 +332,6 @@ namespace impl {
             futures.push_back(std::async(std::launch::async, [this, ip, port]() {
                 mu_.lock();
                 config_.proxies.push_back({ip, port});
-                num_proxies_ += 1;
                 mu_.unlock();
 
                 // respond to proxy
@@ -365,7 +365,7 @@ namespace impl {
         join.data = Command(addr_info.begin(), addr_info.end());
 
         vector<future<bool>> futures;
-        for (size_t i = 0; i < config_.num_servers(); i++) {
+        for (size_t i = 0; i < num_servers(); i++) {
             auto [server_ip, server_port] = config_.servers[i];
 
             futures.push_back(std::async(std::launch::async, [=]() {
@@ -384,7 +384,7 @@ namespace impl {
         }
 
         // add subscriber to config and
-        if (successful_sends < config_.quorum()) return;
+        if (successful_sends < quorum()) return;
 
         // add subscriber to config
         mu_.lock();

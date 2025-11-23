@@ -1,4 +1,5 @@
 #include "config.h"
+#include "address.h"
 #include <third_party/json.hpp>
 #include <set>
 #include <regex>
@@ -16,7 +17,7 @@ namespace api {
         Examples: "127.0.0.1:50001", "localhost:55000", "192.168.1.1:51234"
         @throws ConfigParseError for invalid format, IP, or port range
     */
-    pair<string, int> parse_address(const string& addr) {
+    Address parse_address(const string& addr) {
         // find presence of colon
         size_t colonPos = addr.find_last_of(':');
         if (colonPos == string::npos) throw ConfigParseError("Config Address is not a valid IP address, missing colon");
@@ -44,7 +45,7 @@ namespace api {
         if (port < 1 || port > 65535) throw ConfigParseError("Port " + portStr + " not in range (1-65535)");
 
         // return parsed tcp information
-        return {ipAddr, port};
+        return Address(ipAddr, port);
     }
 
     ZiplogConfig parse_config_JSON(const string& json_str) {
@@ -87,12 +88,12 @@ namespace api {
             config.zipper = parse_address(j["zipper"]);
 
             // helper to extract and validate arrays
-            auto extractArray = [&](const string& field) -> vector<pair<string, int>> {
+            auto extractArray = [&](const string& field) -> vector<Address> {
                 if (!j.contains(field) || !j[field].is_array()) {
                     throw ConfigParseError("Missing or invalid '" + field + "' field");
                 }
 
-                vector<pair<string, int>> result;
+                vector<Address> result;
                 for (const auto& item : j[field]) {
                     if (!item.is_string()) {
                         throw ConfigParseError("Non-string item in " + field + " array");
@@ -101,7 +102,7 @@ namespace api {
                     string addr = item;
                     if (seen.count(addr)) throw ConfigParseError("Duplicate address");
                     seen.insert(addr);
-                    pair<string, int> val = parse_address(addr);
+                    Address val = parse_address(addr);
                     result.push_back(val);
                 }
                 return result;

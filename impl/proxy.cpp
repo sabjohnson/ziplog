@@ -13,12 +13,9 @@ namespace impl {
         Construction/Deconstruction
      ----------------------------------------------------------------------------------------------------------------------- */
 
-    Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg)
-        : BaseNode(proxy_id, cfg, cfg.proxies[proxy_id].first, cfg.proxies[proxy_id].second)
+    Proxy::Proxy(const ProxyConfig &cfg)
+        : BaseNode<ProxyConfig>(cfg)
     {
-        // validate node id
-        validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
-
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         request_count_ = 0;
         next_send_ = 0;
@@ -27,8 +24,8 @@ namespace impl {
         start_epochs();
     }
 
-    Proxy::Proxy(NodeId proxy_id, const ZiplogConfig &cfg, bool registered)
-        : BaseNode(proxy_id, cfg, cfg.proxies[proxy_id].first, cfg.proxies[proxy_id].second)
+    Proxy::Proxy(const ProxyConfig &cfg, bool registered)
+        : BaseNode<ProxyConfig>(cfg)
     {
         if (!registered) {
             registered_ = registered;
@@ -54,7 +51,7 @@ namespace impl {
         Message failure;
         failure.type = FAILURE;
         for (int client : client_sockets_) {
-            cout << "[proxy " << id_ << "] sending failure to client on shutdown" << endl;
+            cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
             NetworkUtils::send_message(client, failure);
             close(client);
         }
@@ -134,7 +131,7 @@ namespace impl {
     bool Proxy::replicate_on_quorum(Message& msg) {
         vector<future<bool>> futures;
 
-        for (size_t i = 0; i < config_.num_servers(); i++) {
+        for (size_t i = 0; i < num_servers(); i++) {
             auto [server_ip, server_port] = config_.servers[i];
 
             futures.push_back(std::async(std::launch::async, [=, &msg]() {
@@ -151,8 +148,8 @@ namespace impl {
             if (f.get()) successful_sends++;
         }
 
-        cout << "successful sends = " << successful_sends << " vs " << " quorum = " << config_.quorum() << endl;
-        return successful_sends >= config_.quorum();
+        cout << "successful sends = " << successful_sends << " vs " << " quorum = " << quorum() << endl;
+        return successful_sends >= quorum();
     }
 
     void Proxy::handle_zip_response(Message& msg) {
@@ -179,13 +176,13 @@ namespace impl {
         req.shard_id = shard();
         if (!is_new) req.sender_id = id();
 
-        string addr_info = ip_address_ + ":" + std::to_string(port_);
+        string addr_info = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr_info.begin(), addr_info.end());
 
         Message resp;
         NetworkUtils::send_message_to_address(
-            config_.zipper.first,
-            config_.zipper.second,
+            config_.zipper.ip,
+            config_.zipper.port,
             req, resp,
             config_.max_retries
         );
@@ -230,7 +227,7 @@ namespace impl {
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
-        if (id() == 1) cout << "request count = " << request_count_ << endl;
+        cout << "request count = " << request_count_ << endl;
         if (estimate_history_.size() > static_cast<long unsigned int>(config_.max_epoch_history)) {
             estimate_history_.pop_front();
         }
@@ -257,9 +254,13 @@ namespace impl {
         zip_req.set_num_requests(slot_estimate_);
 
         Message resp;
-        //cout << "req seq: " << zip_req.seq_or_count << endl;
+        cout << "req seq: " << zip_req.seq_or_count << endl;
 
-        NetworkUtils::send_message_to_address(config_.zipper.first, config_.zipper.second, zip_req, resp, config_.max_retries);
+        if (NetworkUtils::send_message_to_address(config_.zipper.ip, config_.zipper.port, zip_req, resp, config_.max_retries)) {
+            cout << "sent to zipper" << endl;
+        } else {
+            cout << "could not send to zipper" << endl;
+        }
     }
 
     void Proxy::send_out_batch() {
@@ -268,7 +269,7 @@ namespace impl {
 
         // don't send anything out if you don't have any sequence numbers
         if (next_send_ == 0) {
-            //cout << "no sequences..." << endl;
+            cout << "no sequences..." << endl;
             mu_.unlock();
             return;
         }

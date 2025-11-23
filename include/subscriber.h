@@ -6,7 +6,7 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-    class Subscriber : public BaseNode {
+    class Subscriber : public BaseNode<SubscriberConfig> {
         private:
             // quorum tracking
             unordered_map<SequenceNumber, set<NodeId>> pending_quorum_; // seq_number to set of server id. not reached quorum yet
@@ -25,8 +25,8 @@ namespace impl {
             void apply_operation(const Message& msg);
 
         public:
-            Subscriber(NodeId subscriber_id, const ZiplogConfig& cfg);
-            Subscriber(NodeId subscriber_id, const ZiplogConfig& cfg, bool registered);
+            Subscriber(const SubscriberConfig& cfg);
+            Subscriber(const SubscriberConfig& cfg, bool registered);
             void shutdown() override;
             ~Subscriber();
 

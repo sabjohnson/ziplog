@@ -5,12 +5,9 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-    Subscriber::Subscriber(NodeId subscriber_id, const ZiplogConfig &cfg)
-        : BaseNode(subscriber_id, cfg, cfg.subscribers[subscriber_id].first, cfg.subscribers[subscriber_id].second)
+    Subscriber::Subscriber(const SubscriberConfig &cfg)
+        : BaseNode<SubscriberConfig>(cfg)
     {
-        // validate node id
-        validate_node_id(subscriber_id, cfg.num_subscribers(), "Subscriber");
-        
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         log_.push_back(Command());
         next_seq_ = 1;
@@ -18,8 +15,8 @@ namespace impl {
     }
 
 
-    Subscriber::Subscriber(NodeId subscriber_id, const ZiplogConfig &cfg, bool registered)
-            : BaseNode(subscriber_id, cfg, cfg.subscribers[subscriber_id].first, cfg.subscribers[subscriber_id].second)
+    Subscriber::Subscriber(const SubscriberConfig &cfg, bool registered)
+            : BaseNode<SubscriberConfig>(cfg)
     {
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         log_.push_back(Command());
@@ -32,13 +29,13 @@ namespace impl {
         req.type = REGISTER_SUBSCRIBER;
         req.shard_id = shard();
         req.sender_id = id();
-        string addr_info = ip_address_ + ":" + std::to_string(port_);
+        string addr_info = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr_info.begin(), addr_info.end());
 
         Message resp;
         NetworkUtils::send_message_to_address(
-            config_.zipper.first,
-            config_.zipper.second,
+            config_.zipper.ip,
+            config_.zipper.port,
             req, resp,
             config_.max_retries
         );
@@ -91,7 +88,7 @@ namespace impl {
         pending_quorum_[msg.seq_or_count].insert(msg.sender_id);
         
         // attempt to apply this command if we have reached quorum
-        if (pending_quorum_[msg.seq_or_count].size() >= config_.quorum()) {
+        if (pending_quorum_[msg.seq_or_count].size() >= quorum()) {
             apply_operation(msg);
             applied_.insert(msg.seq_or_count);
             pending_quorum_.erase(msg.seq_or_count);

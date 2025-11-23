@@ -9,7 +9,7 @@ namespace ziplog {
 namespace impl {
 
     // Storage servers in the paper
-    class Server : public BaseNode {
+    class Server : public BaseNode<ServerConfig> {
     private:
         unordered_map<NodeId, deque<Message>> proxy_messages_;
         unordered_map<NodeId, SequenceNumber> rounds_;
@@ -41,8 +41,16 @@ namespace impl {
        }
 
     public:
-        Server(NodeId server_id, const ZiplogConfig& cfg);
+        Server(const ServerConfig& cfg);
         void shutdown() override;
         ~Server();
+
+        size_t num_proxies() {
+            return config_.proxies.size();
+        }
+
+        size_t num_subscribers() {
+            return config_.subscribers.size();
+        }
     };
 }}

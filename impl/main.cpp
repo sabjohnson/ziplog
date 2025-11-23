@@ -39,7 +39,7 @@ int main(int argc, char* argv[]) {
         ZiplogConfig config = parse_config(config_file);
 
         if (mode == "zipper") {
-            Zipper zipper(config);
+            Zipper zipper(config.make_zipper_config());
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
@@ -63,7 +63,7 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Proxy mode requires an ID" << std::endl;
                 return ERROR;
             }
-            Proxy proxy(*id, config);
+            Proxy proxy(config.make_proxy_config(*id));
             
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
@@ -73,7 +73,7 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Server mode requires an ID" << std::endl;
                 return ERROR;
             }
-            Server server(*id, config);
+            Server server(config.make_server_config(*id));
             
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
@@ -83,7 +83,7 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Subscriber mode requires an ID" << std::endl;
                 return ERROR;
             }
-            Subscriber subscriber(*id, config);
+            Subscriber subscriber(config.make_subscriber_config(*id));
             
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;

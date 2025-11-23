@@ -7,12 +7,9 @@ using std::future;
 namespace ziplog {
 namespace impl {
 
-    Server::Server(NodeId server_id, const ZiplogConfig &cfg)
-        : BaseNode(server_id, cfg, cfg.servers[server_id].first, cfg.servers[server_id].second)
+    Server::Server(const ServerConfig &cfg)
+        : BaseNode<ServerConfig>(cfg)
     {
-        // validate node id
-        validate_node_id(server_id, cfg.num_servers(), "Server");
-
         // init lag
         lag_ = config_.epoch_duration_ms;
         
@@ -175,9 +172,8 @@ namespace impl {
 
         // bcast that to all other servers
         cout << "[server " << id() << "] bcasting transfer" << endl;
-        for (NodeId i = 0; i < config_.servers.size(); i++) {
-            if (i == id()) continue;
-            const auto& [server_ip, server_port] = config_.servers[i];
+        for (NodeId i = 0; i < config_.other_servers.size(); i++) {
+            const auto& [server_ip, server_port] = config_.other_servers[i];
 
             int socket = NetworkUtils::create_connector_socket();
             if (socket < 0) continue;
@@ -232,7 +228,8 @@ namespace impl {
 
     void Server:: handle_transfer_request(int socket, const Message& msg) {
         // verify validity of sender (valid server)
-        if (msg.shard_id != shard() || !config_.isValidServer(msg.sender_id)) {
+        //if (msg.shard_id != shard() || !config_.isValidServer(msg.sender_id)) {
+        if (msg.shard_id != shard()) {
             cout << "invalid server: " << msg.sender_id << endl;
             return;
         }
@@ -311,13 +308,13 @@ namespace impl {
         fwd_msg.sender_id = id();
 
         vector<future<bool>> futures;
-        for (size_t i = 0; i < config_.num_subscribers(); i++) {
+        for (size_t i = 0; i < num_subscribers(); i++) {
             auto [subscriber_ip, subscriber_port] = config_.subscribers[i];
 
             futures.push_back(std::async(std::launch::async, [=]() {
                 Message ack;
                 if (!NetworkUtils::send_message_to_address(subscriber_ip, subscriber_port, fwd_msg, ack, config_.max_retries)) {
-                    std::cerr << "Server " << id_ << " failed to deliver to subscriber " << i << " after " << config_.max_retries << " attempts" << std::endl;
+                    std::cerr << "Server " << id() << " failed to deliver to subscriber " << i << " after " << config_.max_retries << " attempts" << std::endl;
                     return false;
                 }
                 return true;
@@ -329,7 +326,7 @@ namespace impl {
             if (f.get()) successful_sends++;
         }
 
-        cout << "[server " << id() << "] broadcast seq=" << msg.get_sequence_number() << " successful sends=" << successful_sends << "/" << config_.num_subscribers() << endl;
+        cout << "[server " << id() << "] broadcast seq=" << msg.get_sequence_number() << " successful sends=" << successful_sends << "/" << num_subscribers() << endl;
     }
 
     bool Server::is_blocked(NodeId id) {
@@ -380,7 +377,7 @@ namespace impl {
 
     void Server::shutdown() {
         BaseNode::shutdown();
-        std::cout << "Server " << id_ << " shutting down" << std::endl;
+        std::cout << "Server " << id() << " shutting down" << std::endl;
     }
 
     Server::~Server() {
@@ -396,7 +393,7 @@ namespace impl {
 
         while (running_) {
             Timestamp now = now_ms();
-            for (NodeId id = 0; id < config_.num_proxies(); id++) {
+            for (NodeId id = 0; id < static_cast<NodeId>(num_proxies()); id++) {
                 if (is_blocked(id)) continue;
 
                 mu_.lock();
@@ -414,16 +411,16 @@ namespace impl {
         }
     }
 
-    void Server::report(NodeId id) {
-        cout << "[server " << id_ << "] reporting proxy " << id << endl;
+    void Server::report(NodeId proxy_id) {
+        cout << "[server " << id() << "] reporting proxy " << proxy_id << endl;
         auto [zipper_ip, zipper_port] = config_.zipper;
 
         // build and send report to zipper
         Message req;
         req.type = REPORT;
         req.shard_id = shard();
-        req.sender_id = id_;
-        req.set_failed_proxy(id);
+        req.sender_id = id();
+        req.set_failed_proxy(proxy_id);
 
         Message resp;
         NetworkUtils::send_message_to_address(zipper_ip, zipper_port, req, resp, config_.max_retries);
