@@ -1,6 +1,8 @@
 # Compiler settings
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -g
+#CXXFLAGS = -std=c++17 -Wall -Wextra -g
+CXXFLAGS=-std=c++17 -Wall -Wextra -g -fsanitize=address -fno-omit-frame-pointer
+
 INCLUDES = -I. -Iapi -Iinclude -Ithird_party
 
 # Directories

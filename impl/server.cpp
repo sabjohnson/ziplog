@@ -63,7 +63,7 @@ namespace impl {
             }
 
             else if (msg.type == FREEZE) {
-                handle_freeze(proxy_socket, msg);
+                handle_freeze(msg, true);
             }
 
             else if (msg.type == TRANSFER_REQUEST) {
@@ -98,7 +98,7 @@ namespace impl {
                 int port = std::stoi(addr_info.substr(colon_pos + 1));
 
                mu_.lock();
-               config_.subscribers.push_back({ip, port});
+               config_.subscribers->push_back({ip, port});
                unordered_map<NodeId, deque<Message>> messages_copy = proxy_messages_;
                mu_.unlock();
 
@@ -146,17 +146,18 @@ namespace impl {
         }
     }
 
-    void Server::handle_freeze(int zip_socket, const Message &msg) {
+    void Server::handle_freeze(const Message &msg, bool from_zipper) {
         cout << "[server " << id() << "] got a freeze" << endl;
         NodeId failed_proxy = msg.get_failed_proxy();
 
         // determine if the message is outdated
         mu_.lock();
-        if (rounds_.find(failed_proxy) != rounds_.end() && rounds_[failed_proxy] > msg.get_round()) {
+        if (from_zipper && rounds_.find(failed_proxy) != rounds_.end() && rounds_[failed_proxy] >= msg.get_round()) {
             mu_.unlock();
             cout << "[server " << id() << "] outdated freeze" << endl;
             return;
         }
+
         rounds_[failed_proxy] = msg.get_round();
         blocked_for_reconfiguration_[failed_proxy] = false;
 
@@ -223,7 +224,13 @@ namespace impl {
         cout << "[server " << id() << "] passed data collection.last seq = " << last_used_sequence_number_[failed_proxy] << endl;
         mu_.unlock();
 
-        NetworkUtils::send_message(zip_socket, freeze_response);
+        int sock = NetworkUtils::create_connector_socket();
+        if (sock < 0) return;
+
+        if (NetworkUtils::connect_to_address(sock, config_.zipper.ip, config_.zipper.port)) {
+            NetworkUtils::send_message(sock, freeze_response);
+        }
+        close(sock);
     }
 
     void Server:: handle_transfer_request(int socket, const Message& msg) {
@@ -249,8 +256,10 @@ namespace impl {
         }
 
         // update the round
+        bool new_round = false;
         if (rounds_.find(failed_proxy) == rounds_.end() || rounds_[failed_proxy] < msg.get_round()) {
             rounds_[failed_proxy] = msg.get_round();
+            new_round = true;
         }
 
         // send all messages you have
@@ -284,6 +293,10 @@ namespace impl {
         ack.shard_id = shard();
         ack.sender_id = id();
         NetworkUtils::send_message(socket, ack);
+
+        if (new_round) {
+            handle_freeze(msg, false);
+        }
     }
 
     void Server::broadcast_to_subscribers(const Message &msg) {
@@ -307,9 +320,13 @@ namespace impl {
         Message fwd_msg = msg;
         fwd_msg.sender_id = id();
 
+        mu_.lock();
+        vector<Address> subs_copy = *config_.subscribers;
+        mu_.unlock();
+
         vector<future<bool>> futures;
-        for (size_t i = 0; i < num_subscribers(); i++) {
-            auto [subscriber_ip, subscriber_port] = config_.subscribers[i];
+        for (size_t i = 0; i < subs_copy.size(); i++) {
+            auto [subscriber_ip, subscriber_port] = subs_copy[i];
 
             futures.push_back(std::async(std::launch::async, [=]() {
                 Message ack;

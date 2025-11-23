@@ -20,9 +20,10 @@ namespace impl {
             // state for global sequence numbers (currently only using globalSeqNum)
             SequenceNumber global_seq_num_;
             unordered_map<NodeId, bool> blocked_for_reconfiguration_;   // false = in process of blocking, true = reconfiguration complete
-            unordered_map<NodeId, SequenceNumber> rounds_;
-            unordered_map<NodeId, set<NodeId>> reported_proxies_;
-            unordered_map<NodeId, SequenceNumber> proxy_last_sequence_;
+            unordered_map<NodeId, SequenceNumber> rounds_;          // current round of freeze
+            unordered_map<NodeId, set<NodeId>> rounds_responders_;  // those that have respodned during freeze
+            unordered_map<NodeId, set<NodeId>> reported_proxies_;   // those that have reported a proxy
+            unordered_map<NodeId, set<SequenceNumber>> proxy_last_sequence_;    // last seq number for each round
             unordered_map<NodeId, SequenceNumber> proxy_estimates_;
             unordered_map<NodeId, vector<SequenceNumber>> proxy_allocated_sequences_;
 
@@ -51,6 +52,9 @@ namespace impl {
             void add_proxy(const Message& msg, bool is_new);
             void introduce_proxies();
             void introduce_subscriber(const Message& msg);
+            void send_freeze(NodeId failed_proxy, bool first_round);
+            void handle_freeze_response(const Message& msg);
+            void send_freeze_complete(NodeId failed_proxy, SequenceNumber last_seq);
 
         public:
             Zipper(const ZipperConfig& cfg);
@@ -66,7 +70,7 @@ namespace impl {
             }
 
             size_t num_subscribers() const {
-                return config_.subscribers.size();
+                return config_.subscribers->size();
             }
     };
 
