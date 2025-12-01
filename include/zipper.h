@@ -2,6 +2,7 @@
 #include "base_node.h"
 #include <future>
 #include <deque>
+#include <condition_variable>
 
 using namespace ziplog::api;
 using std::deque;
@@ -18,7 +19,7 @@ namespace impl {
     class Zipper: public BaseNode<ZipperConfig> {
         private:
             // state for global sequence numbers (currently only using globalSeqNum)
-            SequenceNumber global_seq_num_;
+            SequenceNumber global_seq_num_ = 0;
             unordered_map<NodeId, bool> blocked_for_reconfiguration_;   // false = in process of blocking, true = reconfiguration complete
             unordered_map<NodeId, SequenceNumber> rounds_;          // current round of freeze
             unordered_map<NodeId, set<NodeId>> rounds_responders_;  // those that have respodned during freeze
@@ -31,12 +32,14 @@ namespace impl {
             deque<pair<string, int>> joining_proxies_;
 
             // epoch tracking
-            Timestamp epoch_startup_;
-            Timestamp next_epoch_;
+            Timestamp epoch_startup_ = 0;
+            Timestamp next_epoch_ = 0;
 
             // threading
             mutex mu_;
-            atomic<bool> epoch_running_;
+            mutex epoch_cv_mutex_;
+           std::condition_variable epoch_cv_;
+            atomic<bool> epoch_running_ = false;
             thread epoch_thread_;
 
             void start_epochs() {
@@ -70,7 +73,7 @@ namespace impl {
             }
 
             size_t num_subscribers() const {
-                return config_.subscribers->size();
+                return config_.subscribers.size();
             }
     };
 

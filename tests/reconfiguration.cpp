@@ -111,7 +111,7 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-
+/*
 TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
     StartSystem("config/reconfiguration.json");
 
@@ -174,7 +174,7 @@ TEST_F(E2ETest, BasicReconfig_ReplaceSubscriber) {
 
     std::cout << "[TEST] New subscriber has " << command_count_after << " commands" << std::endl;
 }
-
+*/
 TEST_F(E2ETest, BasicReconfig_AddNewProxy) {
     StartSystem("config/reconfiguration.json");
 

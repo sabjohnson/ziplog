@@ -1,6 +1,7 @@
 #pragma once
 #include "base_node.h"
 #include <deque>
+#include <condition_variable>
 
 using namespace ziplog::api;
 using std::deque;
@@ -12,12 +13,6 @@ namespace impl {
     class Server : public BaseNode<ServerConfig> {
     private:
         unordered_map<NodeId, deque<Message>> proxy_messages_;
-
-        // threading safety
-        mutex mu_;
-        atomic<bool> running_;
-        thread failure_detector_thread_;
-
         Timestamp lag_;
         unordered_map<NodeId, bool> blocked_for_reconfiguration_;   // false = in process of blocking, true = reconfiguration complete
         unordered_map<NodeId, SequenceNumber> rounds_;              // current round of freeze
@@ -25,6 +20,13 @@ namespace impl {
 
         unordered_map<NodeId, deque<SequenceNumber>> proxy_timeouts_;
         unordered_map<NodeId, SequenceNumber> last_used_sequence_number_;
+
+        // threading safety
+        mutex mu_;
+        mutex cv_mutex_;
+        std::condition_variable cv_;
+        atomic<bool> running_;
+        thread failure_detector_thread_;
 
         void handle_connection(int proxy_socket) override;
         void handle_freeze(const Message& msg, bool from_zipper);
@@ -52,7 +54,7 @@ namespace impl {
         }
 
         size_t num_subscribers() {
-            return config_.subscribers->size();
+            return config_.subscribers.size();
         }
     };
 }}

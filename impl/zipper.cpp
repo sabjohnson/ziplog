@@ -24,45 +24,65 @@ namespace impl {
     }
 
     void Zipper::handle_connection(int proxy_socket) {
+        cout << "[zipper] handle_connection() called ";
         // read from and respond to valid request (shards match and know proxy id)
         Message req;
         if (!NetworkUtils::recv_message(proxy_socket, req)) {
             close(proxy_socket);
+           cout << endl;
+            cout << "[zipper] handle_connection() exitting" << endl;
             return;
         }
 
         if (req.type == ZIP_REQUEST) {
+            cout << "ZIP REQUEST" << endl;
             update_slot_estimate(req);
+            close(proxy_socket);
+            cout << "[zipper] handle_connection() exitting" << endl;
+            return;
         }
 
         if (req.type == REPORT) {
+            cout << "REPORT" << endl;
             request_last_messages(req);
         }
 
         if (req.type == FREEZE_RESPONSE) {
+            cout << "FREEZE RESPONSE" << endl;
             handle_freeze_response(req);
+            close(proxy_socket);
+            cout << "[zipper] handle_connection() exitting" << endl;
             return;
         }
 
         if (req.type == REGISTER_PROXY) {
+            cout << "REGISTER PROXY" << endl;
             add_proxy(req, true);
+            close(proxy_socket);
+            return;
         }
 
         if (req.type == REGISTER_SUBSCRIBER) {
+            cout << "REGISTER SUBSCRIBER" << endl;
             introduce_subscriber(req);
         }
 
         if (req.type == REJOIN_PROXY) {
+            cout << "REJOIN PROXY" << endl;
             add_proxy(req, false);
+            return;
         }
 
         Message resp;
         resp.type = ACK;
         NetworkUtils::send_message(proxy_socket, resp);
         close(proxy_socket);
+        cout << "[zipper] handle_connection() exitting" << endl;
     }
 
     void Zipper::request_last_messages(Message &req) {
+        cout << "[zipper] request_last_messages() called" << endl;
+
          // obtain lock
         mu_.lock();
 
@@ -71,6 +91,7 @@ namespace impl {
         cout << "[zipper] received report for proxy_id " << failed_proxy << endl;
 
         if (blocked_for_reconfiguration_.find(failed_proxy) != blocked_for_reconfiguration_.end()) {
+            cout << "[zipper] request_last_messages() exitting" << endl;
             mu_.unlock();
             return;
         }
@@ -86,6 +107,7 @@ namespace impl {
         // return if we have not reached quorum on this reportin yet
         if (reported_proxies_[failed_proxy].size() < quorum()) {
             mu_.unlock();
+            cout << "[zipper] request_last_messages() exitting" << endl;
             return;
         }
 
@@ -101,9 +123,12 @@ namespace impl {
         if (new_round) {
             send_freeze(failed_proxy, true);
         }
+        cout << "[zipper] request_last_messages() exitting" << endl;
     }
 
     void Zipper::send_freeze(NodeId failed_proxy, bool first_round) {
+        cout << "[zipper] send_freeze() called" << endl;
+
         mu_.lock();
         int round = 1;
         if (!first_round) {
@@ -125,6 +150,7 @@ namespace impl {
 
         for (const auto& server_addr : servers_copy) {
             thread([server_addr, freeze]() {
+                cout << "[zipper] send_freeze() trying send to " << server_addr.port << endl;
                 int sock = NetworkUtils::create_connector_socket();
                 if (sock < 0) return;
 
@@ -132,16 +158,23 @@ namespace impl {
                     NetworkUtils::send_message(sock, freeze);
                 }
                 close(sock);
+                cout << "[zipper] send_freeze() ending send to " << server_addr.port << endl;
             }).detach();
         }
-        cout << "[zipper] Broadcasted FREEZE for proxy " << failed_proxy << " round " << round << endl;
+        cout << "[zipper] send_freeze() exitting" << endl;
     }
 
     void Zipper::handle_freeze_response(const Message &msg) {
+        cout << "[zipper] handle_freeze_resposne() called" << endl;
+
         mu_.lock();
         // return if response is outdated
         NodeId failed_proxy = msg.get_failed_proxy();
-        if (rounds_.find(failed_proxy) == rounds_.end() || msg.get_round() == rounds_[failed_proxy]) return;
+        if (blocked_for_reconfiguration_[failed_proxy] || (rounds_.find(failed_proxy) != rounds_.end() && msg.get_round() < rounds_[failed_proxy])) {
+            cout << "zipper outdated freeze response" << endl;
+            mu_.unlock();
+            return;
+        }
 
         // add info to tracker
         rounds_responders_[failed_proxy].insert(msg.sender_id);
@@ -171,14 +204,17 @@ namespace impl {
                 send_freeze(failed_proxy, false);
             }
         }
+        cout << "[zipper] handle_freeze_resposne() exitting" << endl;
     }
 
     void Zipper::send_freeze_complete(NodeId failed_proxy, SequenceNumber last_seq) {
+        cout << "[zipper] send_freeze_complete() called" << endl;
         mu_.lock();
         blocked_for_reconfiguration_[failed_proxy] = true;
+        rounds_.erase(failed_proxy);
         vector<SequenceNumber> allocated_seq = proxy_allocated_sequences_[failed_proxy];
         mu_.unlock();
-
+        cout << "[zipper] freeze complete for proxy " << failed_proxy << endl;
         for (auto& seq : allocated_seq) {
             if (seq > last_seq) {
                 cout << "[zipper] sending skip for seq " << seq << endl;
@@ -192,8 +228,10 @@ namespace impl {
                 // bcast SKIP to all servers
                 for (NodeId i = 0; i < config_.servers.size(); i++) {
                     const auto& [server_ip, server_port] = config_.servers[i];
+                    cout << "[zipper] send_freeze_complete() trying send to " << server_port << endl;
                     Message ack;
                     NetworkUtils::send_message_to_address(server_ip, server_port, skip, ack, config_.max_retries);
+                    cout << "[zipper] send_freeze_complete() ending send to " << server_port << endl;
                 }
             }
         }
@@ -206,21 +244,27 @@ namespace impl {
 
         for (NodeId i = 0; i < config_.servers.size(); i++) {
             const auto& [server_ip, server_port] = config_.servers[i];
-            Message ack;
-            NetworkUtils::send_message_to_address(server_ip, server_port, freeze_complete, ack, config_.max_retries);
+            int sock = NetworkUtils::create_connector_socket();
+            if (sock < 0) return;
+
+            if (NetworkUtils::connect_to_address(sock, server_ip, server_port)) {
+                NetworkUtils::send_message(sock, freeze_complete);
+            }
         }
+        cout << "[zipper] send_freeze_complete() exitting" << endl;
     }
 
     void Zipper::update_slot_estimate(Message &req) {
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
+        cout << "[zipper] update_slot_estimate() called" << endl;
+
         // validate request
-        cout << "[zipper] recv proxy request" << endl;
         if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id)) {
+            cout << "[zipper] update_slot_estimate() exitting" << endl;
             cout << "unknown prpoxy" << endl;
             return;
         }
-
-        // obtain lock
-        lock_guard<mutex> lock(mu_);
 
         if (req.get_num_requests()) {
             cout << "Received request from proxy " << req.sender_id << " with " << req.get_num_requests() << " timestamp(s)" << endl;
@@ -228,6 +272,7 @@ namespace impl {
 
         // take note of number fo requests
         proxy_estimates_[req.sender_id] = req.get_num_requests();
+        cout << "[zipper] update_slot_estimate() exitting" << endl;
     }
 
     void Zipper::shutdown() {
@@ -236,14 +281,25 @@ namespace impl {
     }
 
     Zipper::~Zipper() {
+        is_running_ = false;
         epoch_running_ = false;
-        if (epoch_thread_.joinable()) {
-            epoch_thread_.join();
+
+        {
+        std::lock_guard<std::mutex> lock(epoch_cv_mutex_);
+        epoch_cv_.notify_all();
         }
+
+        if (epoch_thread_.joinable()) {
+            cout << "[zipper] joining epoch thread" << endl;
+            epoch_thread_.join();
+            cout << "[zipper] joined epoch thread" << endl;
+        }
+
         shutdown();
     }
 
     void Zipper::add_proxy(const Message& msg, bool is_new) {
+        cout << "[zipper] add_proxy() called" << endl;
         // deserialize address
         string addr_info(msg.data.begin(), msg.data.end());
         size_t colon_pos = addr_info.find(':');
@@ -269,14 +325,15 @@ namespace impl {
         vector<future<bool>> futures;
         for (size_t i = 0; i < num_servers(); i++) {
             auto [server_ip, server_port] = config_.servers[i];
-
+            cout << "[zipper] add_proxy() sending to " << server_port << endl;
             futures.push_back(std::async(std::launch::async, [=]() {
-                Message ack;
-                if (!NetworkUtils::send_message_to_address(server_ip, server_port, join, ack, config_.max_retries)) {
-                    std::cerr << "[zipper] failed to recv ack for proxy " << msg.sender_id << " join from server " << i << std::endl;
-                    return false;
+                int sock = NetworkUtils::create_connector_socket();
+                if (sock < 0) return false;
+
+                if (NetworkUtils::connect_to_address(sock, server_ip, server_port)) {
+                    if (NetworkUtils::send_message(sock, join)) return true;
                 }
-                return true;
+                return false;
             }));
         }
 
@@ -287,9 +344,11 @@ namespace impl {
 
         // add address to queue so zipper may respond at epoch boundary
         if (successful_sends >= quorum()) joining_proxies_.push_back({ip, port});
+        cout << "[zipper] add_proxy() exitting" << endl;
     }
 
     void Zipper::epoch_timer() {
+        cout << "[zipper] epoch_timer() exiting" << endl;
         epoch_running_ = true;
         epoch_startup_ = now_ms();
         next_epoch_ = epoch_startup_ + config_.epoch_duration_ms;
@@ -303,8 +362,11 @@ namespace impl {
 
             if (elapsed >= allocation_time && elapsed < (allocation_time + allocation_buffer)) {
                 // allocate slots at 3/4 point
+                //cout << "[zipper] a" << endl;
                 allocate_slots();
+                //cout << "[zipper] b" << endl;
                 std::this_thread::sleep_for(10ms);
+                //cout << "[zipper] c" << endl;
             }
 
             if (elapsed >= config_.epoch_duration_ms) {
@@ -315,14 +377,26 @@ namespace impl {
                 // restart timer
                 epoch_startup_ = now_ms();
                 next_epoch_ = epoch_startup_ + config_.epoch_duration_ms;
-
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+            //std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+            //cout << "[zipper] d" << endl;
+            std::unique_lock<mutex> lock(epoch_cv_mutex_);
+            //cout << "[zipper] e" << endl;
+            if (epoch_cv_.wait_for(lock, std::chrono::milliseconds(sleep_duration), [this]() {
+                //cout << "[zipper " << id() << "] checking condition" << endl;
+                return !epoch_running_.load();
+            })) {
+                // Predicate returned true, exit immediately
+                cout << "[zipper " << id() << "] condition met, exiting" << endl;
+                break;
+            }
         }
+        cout << "[zipper] epoch_timer() exiting" << endl;
     }
 
     void Zipper::introduce_proxies() {
+        cout << "[zipper] introduce_proxies() called" << endl;
         // obtain lock
         mu_.lock();
         deque<pair<string, int>> proxies_to_add = joining_proxies_;
@@ -340,9 +414,18 @@ namespace impl {
                 Message intro;
                 intro.type = INCLUDE_PROXY;
                 intro.shard_id = shard();
+                cout << "[zipper] introduce_proxies() trying send to " << port << endl;
+                int sock = NetworkUtils::create_connector_socket();
+                if (sock < 0) return;
 
-                Message ack;
-                NetworkUtils::send_message_to_address(ip, port, intro, ack, config_.max_retries);
+                if (NetworkUtils::connect_to_address(sock, ip, port)) {
+                    NetworkUtils::send_message(sock, intro);
+                    cout << "[zipper] introduce_proxies() ending send to " << port << endl;
+                } else {
+                    cout << "[zipper] introduce_proxies() ending send to " << port << endl;
+                }
+                close(sock);
+                cout << "[zipper] introduce_proxies() called" << endl;
             }));
         }
 
@@ -350,9 +433,12 @@ namespace impl {
         for (auto& f : futures) {
             f.wait();
         }
+
+        cout << "[zipper] introduce_proxies() exitting" << endl;
     }
 
     void Zipper::introduce_subscriber(const Message& msg) {
+        cout << "[zipper] introduce_subscriber() called" << endl;
         // deserialize address
         string addr_info(msg.data.begin(), msg.data.end());
         size_t colon_pos = addr_info.find(':');
@@ -369,14 +455,15 @@ namespace impl {
         vector<future<bool>> futures;
         for (size_t i = 0; i < num_servers(); i++) {
             auto [server_ip, server_port] = config_.servers[i];
-
+            //cout << "[zipper] introduce_subscriber() trying send to " << server_ip << endl;
             futures.push_back(std::async(std::launch::async, [=]() {
-                Message ack;
-                if (!NetworkUtils::send_message_to_address(server_ip, server_port, join, ack, config_.max_retries)) {
-                    std::cerr << "[zipper] failed to recv ack for subscriber " << msg.sender_id << " join from server " << i << std::endl;
-                    return false;
+                int sock = NetworkUtils::create_connector_socket();
+                if (sock < 0) return false;
+
+                if (NetworkUtils::connect_to_address(sock, server_ip, server_port)) {
+                    if (NetworkUtils::send_message(sock, join)) return true;
                 }
-                return true;
+                return false;
             }));
         }
 
@@ -390,22 +477,28 @@ namespace impl {
 
         // add subscriber to config
         mu_.lock();
-        config_.subscribers->push_back({ip, port});
+        config_.subscribers.push_back({ip, port});
         mu_.unlock();
 
-        // send response to subscriber
+        // send response to subscriber (remove ack)
         Message intro;
         intro.type = INCLUDE_SUBSCRIBER;
         intro.shard_id = shard();
 
-        Message ack;
-        NetworkUtils::send_message_to_address(ip, port, intro, ack, config_.max_retries);
+        int sock = NetworkUtils::create_connector_socket();
+        if (sock < 0) return;
+
+        if (NetworkUtils::connect_to_address(sock, ip, port)) {
+            NetworkUtils::send_message(sock, intro);
+        }
+        cout << "[zipper] introduce_subscriber() exitting" << endl;
     }
 
     void Zipper::allocate_slots() {
+
         // obtain lock
         mu_.lock();
-
+        cout << "[zipper] allocate_slots() called" << endl;
         cout << "[zipper] ---------------------------PROXY ESTIMATES" << endl;
         for (auto& [proxy_id, est] : proxy_estimates_) {
             if (reported_proxies_.find(proxy_id) != reported_proxies_.end()) continue;
@@ -450,9 +543,11 @@ namespace impl {
             });
             t.detach();
         }
+        cout << "[zipper] allocate_slots() exitting" << endl;
     }
 
     void Zipper::deliver_slot_allocation(NodeId proxy_id, const vector<SequenceNumber>& values) {
+        cout << "[zipper] deliver_slot_allocation() called" << endl;
         Message resp;
         resp.type = ZIP_RESPONSE;
         resp.shard_id = shard();
@@ -460,14 +555,22 @@ namespace impl {
         resp.set_num_requests(static_cast<SequenceNumber>(values.size() / 2));
         resp.set_assigned_sequences(values); // {timestamp, seq_num, timestamp, seq_num, ...}
 
-        Message ack;
         auto& [proxy_ip, proxy_port] = config_.proxies[proxy_id];
+        int sock = NetworkUtils::create_connector_socket();
+        if (sock < 0) return;
 
-        NetworkUtils::send_message_to_address(proxy_ip, proxy_port, resp, ack, config_.max_retries);
+        if (NetworkUtils::connect_to_address(sock, proxy_ip, proxy_port)) {
+            NetworkUtils::send_message(sock, resp);
+        }
 
         // share sequence numbers to all srevers too
         for (const auto& [server_ip, server_port] : config_.servers) {
-            NetworkUtils::send_message_to_address(server_ip, server_port, resp, ack, config_.max_retries);
+                int sock = NetworkUtils::create_connector_socket();
+                if (sock < 0) return;
+
+                if (NetworkUtils::connect_to_address(sock, server_ip, server_port)) {
+                    NetworkUtils::send_message(sock, resp);
+                }
         }
 
         std::cout << "proxy " << proxy_id << " : [";
@@ -476,5 +579,6 @@ namespace impl {
             if (i < values.size() - 1) std::cout << ", ";
         }
         std::cout << "]" << std::endl;
+        cout << "[zipper] deliver_slot_allocation() exitting" << endl;
     }
 }}

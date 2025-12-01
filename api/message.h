@@ -40,7 +40,7 @@ namespace api {
 
         // Accessors to make intent clear (non-defensive assuming benign failures)
         SequenceNumber get_sequence_number() const {
-            assert(type == APPEND || type == SKIP || type == ACK || type == TRANSFER_REQUEST || type == FREEZE_RESPONSE);
+            assert(type == APPEND || type == SKIP || type == ACK || type == TRANSFER_REQUEST || type == FREEZE_RESPONSE || type == FREEZE_COMPLETE);
             if (type == TRANSFER_REQUEST || type == FREEZE_RESPONSE) {
                 assert(ordering_values.size() > 1);
                 return ordering_values[1];
@@ -49,7 +49,7 @@ namespace api {
         }
 
         void set_sequence_number(SequenceNumber seq) {
-            assert(type == APPEND || type == SKIP || type == ACK || type == TRANSFER_REQUEST || type == FREEZE_RESPONSE);
+            assert(type == APPEND || type == SKIP || type == ACK || type == TRANSFER_REQUEST || type == FREEZE_RESPONSE || type == FREEZE_COMPLETE);
             if (type == TRANSFER_REQUEST || type == FREEZE_RESPONSE) {
                 if (ordering_values.size() < 2) {
                     ordering_values.resize(2);

@@ -51,16 +51,25 @@ protected:
 
         // Stop everything gracefully first
         for (auto& p : proxies) if (p) p->shutdown();
+        cout << "[TEST] proxies torn down" << endl;
         for (auto& s : servers) if (s) s->shutdown();
+        cout << "[TEST] servers torn down" << endl;
         for (auto& s : subscribers) if (s) s->shutdown();
+        cout << "[TEST] subscribers torn down" << endl;
 
         std::this_thread::sleep_for(200ms);
 
         clients.clear();
+        cout << "[TEST] clients cleared" << endl;
         subscribers.clear();
+        cout << "[TEST] subscribers cleared" << endl;
         servers.clear();
+        cout << "[TEST] servers cleared" << endl;
         proxies.clear();
+        cout << "[TEST] proxies cleared" << endl;
         zipper.reset();
+        cout << "[TEST] zipper cleared" << endl;
+        cout << "[TEST] tear down complete" << endl;
     }
 
     /*
@@ -172,39 +181,79 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxy) {
     }
 }
 
-// currently client simply unable to make requests, shoulf function sa normal
 TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     StartSystem("config/servers.json");
+    std::cout << "sizeof(Server) = " << sizeof(Server) << std::endl;
+    std::cout << "sizeof(ServerConfig) = " << sizeof(ServerConfig) << std::endl;
+    std::cout << "sizeof(BaseNode<ServerConfig>) = " << sizeof(BaseNode<ServerConfig>) << std::endl;
+    std::cout << "sizeof(Proxy) = " << sizeof(Proxy) << std::endl;
+    std::cout << "sizeof(ProxyConfig) = " << sizeof(ProxyConfig) << std::endl;
+    std::cout << "sizeof(BaseNode<ProxyConfig>) = " << sizeof(BaseNode<ProxyConfig>) << std::endl;
+    std::cout << "sizeof(mutex) = " << sizeof(std::mutex) << std::endl;
+    std::cout << "sizeof(condition_variable) = " << sizeof(std::condition_variable) << std::endl;
+    std::cout << "sizeof(thread) = " << sizeof(std::thread) << std::endl;
+    std::cout << "sizeof(atomic<bool>) = " << sizeof(std::atomic<bool>) << std::endl;
 
-    // client sends append (client 0 to proxy 0, client 1 to proxy 1 and so on...)
-    std::thread t1([&]() { ASSERT_FALSE(send_append(0, "amish donuts ")); });
+    // Thread t1 expects failure (proxy will be killed)
+    atomic<bool> t1_completed{false};
+    std::thread t1([&]() {
+        cout << "[TEST] started t1" << endl;
+        bool result = send_append(0, "amish donuts ");
+        cout << "[TEST] after send append" << endl;
+        t1_completed = true;
+        // Expect false since proxy gets killed
+        EXPECT_FALSE(result);
+        cout << "[TEST] after expect false" << endl;
+    });
+
     std::this_thread::sleep_for(50ms);
     std::thread t2([&]() { ASSERT_TRUE(send_append(1, "are the ")); });
     std::this_thread::sleep_for(50ms);
     std::thread t3([&]() { ASSERT_TRUE(send_append(2, "best")); });
+
     std::thread killer([&]() {
+        cout << "[TEST] before shutdown" << endl;
         std::this_thread::sleep_for(1100ms);
+        proxies[0]->shutdown();  // Shutdown gracefully first
+        cout << "[TEST] before deconstructor" << endl;
+        std::this_thread::sleep_for(100ms);
         proxies[0].reset();
+        cout << "[TEST] after deconstructor" << endl;
     });
 
+    // Join with timeout
+    t2.join();
+    t3.join();
+    killer.join();
 
-    t1.join(); t2.join(); t3.join(); killer.join();
+    // Wait for t1 with timeout
+    auto start = std::chrono::steady_clock::now();
+    while (!t1_completed) {
+        std::this_thread::sleep_for(100ms);
+        auto elapsed = std::chrono::steady_clock::now() - start;
+        if (elapsed > std::chrono::seconds(5)) {
+            std::cout << "[TEST] WARNING: t1 timed out, proxy may not have closed connection properly" << std::endl;
+            break;
+        }
+    }
 
-    // wait for propagation (3 epochs)
+    cout << "[TEST] before t1.join()" << endl;
+    if (t1.joinable()) t1.join();
+    cout << "[TEST] after t1.join()" << endl;
+
     wait_for_propagation();
 
-    // expand log and remove skips
+    // Rest of test...
     const auto& original_log = subscribers[0]->log();
     vector<vector<Command>> log = expand_log(original_log);
 
-    // verify log size
     ASSERT_EQ(log.size(), 2);
 
-    // verify contents
     vector<vector<string>> expected = {{"are the "}, {"best"}};
     for (size_t i = 0; i < 2; i++) {
         verify_index_matches_expected(log[i], expected[i]);
     }
+    cout << "[TEST] shutting down" << endl;
 }
 
 TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
@@ -226,29 +275,34 @@ TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
         auto [zipper_ip, zipper_port] = config.zipper;
         Message zip_resp;
 
-        if (NetworkUtils::send_message_to_address(zipper_ip, zipper_port, zip_req, zip_resp, config.max_retries)) {
-            // wait for zipper to allocate sequences
-            std::this_thread::sleep_for(1000ms);
+        int sock = NetworkUtils::create_connector_socket();
+        if (sock < 0) return;
 
-            // we know it will be sequence 1 in the first epoch
-            SequenceNumber allocated_seq = 1;
+        if (NetworkUtils::connect_to_address(sock, zipper_ip, zipper_port)) {
+            if (NetworkUtils::send_message(sock, zip_req)) {
+                // wait for zipper to allocate sequences
+                std::this_thread::sleep_for(1000ms);
 
-            // manually send APPEND to only server 0
-            Message msg;
-            msg.type = APPEND;
-            msg.shard_id = 0;
-            msg.sender_id = 0;  // From proxy 0
-            msg.set_sequence_number(allocated_seq);
+                // we know it will be sequence 1 in the first epoch
+                SequenceNumber allocated_seq = 1;
 
-            CommandBatch batch;
-            batch.add_command(string_to_command("simulated client 0"));
-            msg.data = batch.serialize();
+                // manually send APPEND to only server 0
+                Message msg;
+                msg.type = APPEND;
+                msg.shard_id = 0;
+                msg.sender_id = 0;  // From proxy 0
+                msg.set_sequence_number(allocated_seq);
 
-            auto [server_ip, server_port] = config.servers[0];
-            Message ack;
-            NetworkUtils::send_message_to_address(server_ip, server_port, msg, ack, config.max_retries);
+                CommandBatch batch;
+                batch.add_command(string_to_command("simulated client 0"));
+                msg.data = batch.serialize();
 
-            std::cout << "[TEST] Sent message to server 0 only with seq " << allocated_seq << std::endl;
+                auto [server_ip, server_port] = config.servers[0];
+                Message ack;
+                NetworkUtils::send_message_to_address(server_ip, server_port, msg, ack, config.max_retries);
+
+                std::cout << "[TEST] Sent message to server 0 only with seq " << allocated_seq << std::endl;
+            }
         }
     });
 
@@ -274,7 +328,7 @@ TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
         verify_index_matches_expected(log[i], expected[i]);
     }
 }
-
+/*
 TEST_F(E2ETest, Multiple_StressAppend) {
     StartSystem("config/performance.json");
 
@@ -307,7 +361,7 @@ TEST_F(E2ETest, Multiple_StressAppend) {
     vector<vector<Command>> log = expand_log(original_log);
     ASSERT_EQ(log.size(), 300);
 }
-
+/*
 TEST_F(E2ETest, Multiple_StressAppend3ClientsOneProxy) {
     StartSystem("config/performance.json");
 

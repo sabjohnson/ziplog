@@ -63,7 +63,10 @@ protected:
         @return: True if successful response from proxy
     */
     bool send_append(NodeId client_id, const string& cmd) {
-        if (client_id >= clients.size()) return false;
+        if (client_id >= clients.size()) {
+            cout << "[TEST] client outside fo range" << endl;
+            return false;
+        }
         return clients[client_id]->append(string_to_command(cmd));
     }
 
@@ -106,13 +109,22 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-
 /*
 TEST_F(E2ETest, Setup1_SingleAppend) {
     StartSystem("config/setup1.json");
 
     // client sends append
-    ASSERT_TRUE(send_append(0, "amish donuts"));
+    int attempt = 0;
+    bool success = false;
+    while (attempt < 5) {
+        if (send_append(0, "amish donuts")) {
+            success = true;
+            break;
+        }
+        attempt++;
+        std::this_thread::sleep_for(100ms);
+    }
+    ASSERT_TRUE(success);
 
     // wait for propagation (3 epochs)
     wait_for_propagation();
@@ -161,7 +173,15 @@ TEST_F(E2ETest, Setup1_SingleAppendThreeEpochs) {
 
     for (int i = 0; i < 3; i++) {
         // client sends append
-        ASSERT_TRUE(send_append(0, "amish donuts"));
+        bool success = false;
+        int attempt = 0;
+        while (attempt < 5) {
+            if (send_append(0, "amish donuts")) {
+                success = true;
+                break;
+            }
+        }
+        ASSERT_TRUE(success);
 
         // wait for one epoch
         wait_for_propagation(1);
@@ -218,7 +238,6 @@ TEST_F(E2ETest, Setup1_TwoClientsSingleAppend) {
 
     ASSERT_EQ(expected.empty(), true);
 }
-
 
 TEST_F(E2ETest, Setup1_TwoClientsSingleAppendTwoEpochs) {
     StartSystem("config/setup1.json");

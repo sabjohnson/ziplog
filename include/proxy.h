@@ -1,6 +1,7 @@
 #pragma once
 #include "base_node.h"
 #include <deque>
+#include <condition_variable>
 
 using namespace ziplog::api;
 using std::deque;
@@ -26,11 +27,13 @@ namespace impl {
            deque<int> client_sockets_;              // so you can respond after sending batch
 
            // epoch tracking
-           Timestamp epoch_startup_;
+           Timestamp epoch_startup_ = 0;
 
            // threading
            mutex mu_;
-           atomic<bool> epoch_running_;
+           mutex epoch_cv_mutex_;
+           std::condition_variable epoch_cv_;
+           atomic<bool> epoch_running_ = false;
            thread epoch_thread_;
 
            void start_epochs() {
@@ -46,7 +49,7 @@ namespace impl {
            void handle_zip_response(Message& msg);
            void handle_append(int client_socket, const Command& data);
            bool replicate_on_quorum(Message& msg);
-          
+
        public:
            Proxy(const ProxyConfig& config);
            Proxy(const ProxyConfig& config, bool registered);

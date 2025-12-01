@@ -31,7 +31,9 @@ namespace impl {
         virtual ~BaseNode() {
             shutdown();
             if (running_thread_.joinable()) {
+                cout << "base node trynna join" << endl;
                 running_thread_.join();  // wait for thread to finish
+                cout << "base node joined" << endl;
             }
         }
 

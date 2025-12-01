@@ -19,6 +19,8 @@ namespace impl {
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         request_count_ = 0;
         next_send_ = 0;
+        epoch_startup_ = 0;
+        epoch_running_ = false;
 
         start_listening();
         start_epochs();
@@ -30,6 +32,10 @@ namespace impl {
         if (!registered) {
             registered_ = registered;
         }
+        request_count_ = 0;
+        next_send_ = 0;
+        epoch_startup_ = 0;
+        epoch_running_ = false;
 
         attempt_join(true);
         start_listening();
@@ -40,24 +46,31 @@ namespace impl {
     }
 
     Proxy::~Proxy() {
-        cout << "Proxy " << id() << " shutting down" << endl;
         epoch_running_ = false;
-        if (epoch_thread_.joinable()) {
-            epoch_thread_.join();
+
+        {
+        std::lock_guard<std::mutex> lock(epoch_cv_mutex_);
+        epoch_cv_.notify_all();
         }
 
-        lock_guard<mutex> lock(mu_);
+        if (epoch_thread_.joinable()) {
+            //cout << "[proxy " << id() << "] joinging epoch thread" << endl;
+            epoch_thread_.join();
+            //cout << "[proxy " << id() << "] epoch thread joined" << endl;
+        }
 
+        mu_.lock();
         Message failure;
         failure.type = FAILURE;
         for (int client : client_sockets_) {
-            cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
+            //cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
             NetworkUtils::send_message(client, failure);
             close(client);
         }
+        mu_.unlock();
 
         shutdown();
-
+        //cout << "[proxy " << id() << "] shutting down" << endl;
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -72,8 +85,6 @@ namespace impl {
             return;
         }
 
-        cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
-
         // build and send response
         Message resp;
         resp.type = ACK;
@@ -81,6 +92,7 @@ namespace impl {
         if (req.type == APPEND) {
             if (registered_) {
                 handle_append(client_socket, req.data);
+                cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
                 return;
             } else {
                 cout << "[proxy " << id() << "] not registered yet" << endl;
@@ -100,6 +112,8 @@ namespace impl {
                 start_epochs();
                 cout << "[proxy " << id() << "] ------------------------------------- joining the system" << endl;
             }
+            close(client_socket);
+            return;
         }
 
         else if (req.type == FREEZE) {
@@ -121,7 +135,7 @@ namespace impl {
 
         // increment number of requests
         request_count_++;
-        //cout << "request count: " << request_count_ << endl;
+        cout << "[proxy " << id() << "] request count: " << request_count_ << endl;
 
         // take note of client socket (respond after its replicated during epoch interval)
         client_sockets_.push_back(client_socket);
@@ -148,7 +162,7 @@ namespace impl {
             if (f.get()) successful_sends++;
         }
 
-        cout << "successful sends = " << successful_sends << " vs " << " quorum = " << quorum() << endl;
+        //cout << "successful sends = " << successful_sends << " vs " << " quorum = " << quorum() << endl;
         return successful_sends >= quorum();
     }
 
@@ -159,7 +173,7 @@ namespace impl {
         // validate zip response
         if (msg.shard_id != shard()) return;
 
-        cout << "[proxy "  << id() << "] got " << msg.get_num_requests() << " slots from the zipper" << endl;
+        //cout << "[proxy "  << id() << "] got " << msg.get_num_requests() << " slots from the zipper" << endl;
 
         // add new sequence numbers/timeouts to your pool
         for (size_t i = 0; i < msg.ordering_values.size(); i++) {
@@ -179,13 +193,12 @@ namespace impl {
         string addr_info = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr_info.begin(), addr_info.end());
 
-        Message resp;
-        NetworkUtils::send_message_to_address(
-            config_.zipper.ip,
-            config_.zipper.port,
-            req, resp,
-            config_.max_retries
-        );
+        int sock = NetworkUtils::create_connector_socket();
+        if (sock < 0) return;
+
+        if (NetworkUtils::connect_to_address(sock, config_.zipper.ip, config_.zipper.port)) {
+            NetworkUtils::send_message(sock, req);
+        }
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -193,16 +206,18 @@ namespace impl {
      ----------------------------------------------------------------------------------------------------------------------- */
 
     void Proxy::epoch_timer() {
-        cout << "[proxy " << id() << "] calling epoch_timer " << endl;
+        //cout << "[proxy " << id() << "] calling epoch_timer " << endl;
         epoch_running_ = true;
         epoch_startup_ = now_ms();
         const Timestamp sleep_duration = std::max(static_cast<Timestamp>(1), config_.epoch_duration_ms / 200);
 
         while (epoch_running_) {
+            //cout << "[proxy " << id() << "] epoch_running_ " << endl;
             Timestamp now = now_ms();
             Timestamp elapsed = now - epoch_startup_;
 
             if (registered_) {
+                //cout << "[proxy " << id() << "] is registered" << endl;
                 if (elapsed >= config_.epoch_duration_ms) { // full epoch elapsed
                     // restart state
                     epoch_startup_ = now_ms();
@@ -217,17 +232,29 @@ namespace impl {
                 }
             }
 
-            std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+            //std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+            std::unique_lock<mutex> lock(epoch_cv_mutex_);
+            if (epoch_cv_.wait_for(lock, std::chrono::milliseconds(sleep_duration), [this]() {
+                //cout << "[proxy " << id() << "] checking condition" << endl;
+                return !epoch_running_.load();
+            })) {
+                // Predicate returned true, exit immediately
+                //cout << "[proxy " << id() << "] condition met, exiting" << endl;
+                break;
+            }
+            //cout << "[proxy " << id() << "] done waiting" << endl;
         }
+        //cout << "[proxy " << id() << "] epoch_timer() exiting" << endl;
     }
 
     void Proxy::update_slot_estimate() {
+        //cout << "[proxy " << id() << "update_slots_estimate() waiting for lock" << endl;
         // obtain lock
         mu_.lock();
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
-        cout << "request count = " << request_count_ << endl;
+        //cout << "request count = " << request_count_ << endl;
         if (estimate_history_.size() > static_cast<long unsigned int>(config_.max_epoch_history)) {
             estimate_history_.pop_front();
         }
@@ -245,6 +272,7 @@ namespace impl {
         request_count_ = 0;
 
         mu_.unlock();
+        //cout << "[proxy " << id() << " update_slots_estimate() releasing lock" << endl;
 
         // send to zipper
         Message zip_req;
@@ -254,22 +282,29 @@ namespace impl {
         zip_req.set_num_requests(slot_estimate_);
 
         Message resp;
-        cout << "req seq: " << zip_req.seq_or_count << endl;
+        //cout << "req seq: " << zip_req.seq_or_count << endl;
+        int sock = NetworkUtils::create_connector_socket();
+        if (sock < 0) return;
 
-        if (NetworkUtils::send_message_to_address(config_.zipper.ip, config_.zipper.port, zip_req, resp, config_.max_retries)) {
-            cout << "sent to zipper" << endl;
+        if (NetworkUtils::connect_to_address(sock, config_.zipper.ip, config_.zipper.port)) {
+            NetworkUtils::send_message(sock, zip_req);
+            //cout << "sent to zipper" << endl;
         } else {
-            cout << "could not send to zipper" << endl;
+            //cout << "could not send to zipper" << endl;
         }
+        close(sock);
+        //cout << "[proxy " << id() << "update_slot_estimates() exitting" << endl;
     }
 
     void Proxy::send_out_batch() {
+        cout << "[proxy " << id() << "sned_out_batch() waiting for lock" << endl;
+
         // obtain lock
         mu_.lock();
 
         // don't send anything out if you don't have any sequence numbers
         if (next_send_ == 0) {
-            cout << "no sequences..." << endl;
+            //cout << "no sequences..." << endl;
             mu_.unlock();
             return;
         }
@@ -288,6 +323,7 @@ namespace impl {
             // commands to send
             for (const auto& cmd : batch_values_) {
                 batch.add_command(cmd);
+                cout << command_to_string(cmd) << endl;
             }
         } else {
             // no commands to send (send skip)
@@ -306,6 +342,7 @@ namespace impl {
         else next_send_ = 0;
 
         mu_.unlock();
+        //cout << "[proxy " << id() << "send_out_batch() releasing lock" << endl;
 
         msg.data = batch.serialize();
 
@@ -325,5 +362,6 @@ namespace impl {
             NetworkUtils::send_message(client, resp);
             close(client);
         }
+        cout << "[proxy " << id() << "send_out_batch() returning" << endl;
     }
 }}
