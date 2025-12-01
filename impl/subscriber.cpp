@@ -24,7 +24,6 @@ namespace impl {
         start_listening();
 
         // register with zipper
-        Message ack;
         Message req;
         req.type = REGISTER_SUBSCRIBER;
         req.shard_id = shard();
@@ -32,13 +31,11 @@ namespace impl {
         string addr_info = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr_info.begin(), addr_info.end());
 
-        Message resp;
-        NetworkUtils::send_message_to_address(
-            config_.zipper.ip,
-            config_.zipper.port,
-            req, resp,
-            config_.max_retries
-        );
+        // send message to the zipper
+        int sock = connection_pool_.get_connection(config_.zipper);
+        if (sock >= 0) {
+            NetworkUtils::send_message(sock, req);
+        }
     }
 
     void Subscriber::handle_connection(int server_sock) {
@@ -162,5 +159,6 @@ namespace impl {
     Subscriber::~Subscriber() {
         shutdown();
         print_expanded_log();
+        connection_pool_.close_all();
     }
 }}

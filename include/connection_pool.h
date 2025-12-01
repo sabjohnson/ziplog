@@ -28,7 +28,7 @@ namespace impl {
             int sock = NetworkUtils::create_connector_socket();
             if (sock< 0) return -1;
 
-            if (!NetworkUtils::connect_to_address(sock, ip, port)) {
+            if (!NetworkUtils::connect_to_address(sock, addr.ip, addr.port)) {
                 close(sock);
                 return -1;
             }
@@ -52,6 +52,7 @@ namespace impl {
         }
 
         void close_all() {
+            lock_guard<mutex> lock(mu_);
             for (auto& [addr, sock] : active_connections_) {
                 close(sock);
             }

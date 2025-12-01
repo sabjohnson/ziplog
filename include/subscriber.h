@@ -1,5 +1,6 @@
 #pragma once
 #include "base_node.h"
+#include "connection_pool.h"
 
 using namespace ziplog::api;
 
@@ -19,6 +20,9 @@ namespace impl {
 
             // threading safety
             mutex mu_;
+
+            // connection pool optimization
+            ConnectionPool connection_pool_;
 
             void handle_connection(int server_sock) override;
             void process_for_quorum(const Message& msg);
