@@ -98,7 +98,7 @@ namespace impl {
                 int port = std::stoi(addr_info.substr(colon_pos + 1));
 
                mu_.lock();
-               config_.subscribers->push_back({ip, port});
+               config_.subscribers.push_back(Address(ip, port));
                unordered_map<NodeId, deque<Message>> messages_copy = proxy_messages_;
                mu_.unlock();
 
@@ -138,7 +138,7 @@ namespace impl {
         NodeId proxy_id = msg.sender_id;
 
         if (!config_.isValidProxy(proxy_id)) {  // new proxy
-            config_.proxies.push_back({ip, port});
+            config_.proxies.push_back(Address(ip, port));
         } else {                                // rejoining proxy
             blocked_for_reconfiguration_.erase(proxy_id);
             proxy_timeouts_[proxy_id] = deque<Timestamp>();
@@ -301,7 +301,7 @@ namespace impl {
 
     void Server::broadcast_to_subscribers(const Message &msg) {
         // verify validity of sender (valid proxy)
-        if (msg.shard_id != shard() || !config_.isValidProxy(msg.sender_id)) {
+        if (msg.shard_id != shard()) {
             cout << "invalid proxy: " << msg.sender_id << endl;
             return;
         }
@@ -321,7 +321,7 @@ namespace impl {
         fwd_msg.sender_id = id();
 
         mu_.lock();
-        vector<Address> subs_copy = *config_.subscribers;
+        vector<Address> subs_copy = config_.subscribers;
         mu_.unlock();
 
         vector<future<bool>> futures;

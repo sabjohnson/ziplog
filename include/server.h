@@ -52,7 +52,7 @@ namespace impl {
         }
 
         size_t num_subscribers() {
-            return config_.subscribers->size();
+            return config_.subscribers.size();
         }
     };
 }}

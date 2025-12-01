@@ -112,8 +112,7 @@ namespace api {
             // update config (does not check for duplicates or 2f + 1 servers
             config.proxies = extractArray("proxies");
             config.servers = extractArray("servers");
-            //config.subscribers = extractArray("subscribers");
-            config.subscribers = std::make_shared<vector<Address>>(extractArray("subscribers"));
+            config.subscribers = extractArray("subscribers");
 
             // if (config.proxies.size() < 1) throw ConfigParseError("Missing proxies");
             // if (config.subscribers.size() < 1) throw ConfigParseError("Missing subscribers");

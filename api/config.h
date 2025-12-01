@@ -27,7 +27,7 @@ namespace api {
 //        vector<pair<string, int>> subscribers;
         vector<Address> proxies;
         vector<Address> servers;
-        shared_ptr<vector<Address>> subscribers;
+        vector<Address> subscribers;
 
 
         // helper methods
@@ -44,7 +44,7 @@ namespace api {
         }
 
         size_t num_subscribers() const {
-            return subscribers->size();
+            return subscribers.size();
         }
 
         bool isValidProxy(NodeId id) {
@@ -128,7 +128,7 @@ namespace api {
             SubscriberConfig cfg;
             cfg.id = subscriber_id;
             cfg.shard = 0;
-            cfg.address = (*subscribers)[subscriber_id];
+            cfg.address = subscribers[subscriber_id];
             cfg.f = f;
             cfg.max_retries = max_retries;
             cfg.zipper = zipper;

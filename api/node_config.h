@@ -1,7 +1,5 @@
 #include <memory>
 
-using std::shared_ptr;
-
 namespace ziplog {
 namespace api {
 
@@ -17,7 +15,7 @@ namespace api {
         Timestamp epoch_duration_ms;
         vector<Address> proxies;        // needed to distribute sequence numbers
         vector<Address> servers;        // need for recovery protocol
-        shared_ptr<vector<Address>> subscribers;    // ? not necessary
+        vector<Address> subscribers;    // ? not necessary
 
         bool isValidProxy(NodeId id) {
             if (id >= proxies.size()) return false;
@@ -30,7 +28,7 @@ namespace api {
         }
 
         bool isValidSubscriber(NodeId id) {
-            if (id >= subscribers->size()) return false;
+            if (id >= subscribers.size()) return false;
             return true;
         }
     };
@@ -46,7 +44,7 @@ namespace api {
         Timestamp epoch_duration_ms;
         Address zipper;
         vector<Address> proxies;
-        shared_ptr<vector<Address>> subscribers;    // need subscribers to broadcast
+        vector<Address> subscribers;    // need subscribers to broadcast
         vector<Address> other_servers;  // for recovery protocol
 
         bool isValidProxy(NodeId id) {

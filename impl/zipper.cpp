@@ -390,7 +390,7 @@ namespace impl {
 
         // add subscriber to config
         mu_.lock();
-        config_.subscribers->push_back({ip, port});
+        config_.subscribers.push_back({ip, port});
         mu_.unlock();
 
         // send response to subscriber

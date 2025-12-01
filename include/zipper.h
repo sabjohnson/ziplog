@@ -70,7 +70,7 @@ namespace impl {
             }
 
             size_t num_subscribers() const {
-                return config_.subscribers->size();
+                return config_.subscribers.size();
             }
     };
 
