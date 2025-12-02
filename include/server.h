@@ -1,5 +1,6 @@
 #pragma once
 #include "base_node.h"
+#include "connection_pool.h"
 #include <deque>
 
 using namespace ziplog::api;
@@ -17,6 +18,9 @@ namespace impl {
         mutex mu_;
         atomic<bool> running_;
         thread failure_detector_thread_;
+
+        // connection pool optimization
+        ConnectionPool connection_pool_;
 
         Timestamp lag_;
         unordered_map<NodeId, bool> blocked_for_reconfiguration_;   // false = in process of blocking, true = reconfiguration complete

@@ -1,5 +1,6 @@
 #pragma once
 #include "base_node.h"
+#include "connection_pool.h"
 #include <deque>
 
 using namespace ziplog::api;
@@ -32,6 +33,9 @@ namespace impl {
            mutex mu_;
            atomic<bool> epoch_running_;
            thread epoch_thread_;
+
+           // connection pool optimization
+           ConnectionPool connection_pool_;
 
            void start_epochs() {
                 epoch_thread_ = thread(&Proxy::epoch_timer, this);

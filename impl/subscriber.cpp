@@ -39,12 +39,16 @@ namespace impl {
     }
 
     void Subscriber::handle_connection(int server_sock) {
+        cout << "[subscriber " << id() << "] handle_connection() called" << endl;
         while (running()) {
             // read message
             Message msg;
+            cout << "[subscriber " << id() << "] calling recv_meesage()" << endl;
             if (!NetworkUtils::recv_message(server_sock, msg)) {
+                cout << "[subscriber " << id() << "] done calling recv_meesage()" << endl;
                 break;
             }
+            cout << "[subscriber " << id() << "] done calling recv_meesage()" << endl;
 
             // process message
             if (msg.type == APPEND || msg.type == SKIP) {
@@ -56,12 +60,16 @@ namespace impl {
             ack_msg.type = ACK;
             ack_msg.sender_id = id();
             ack_msg.seq_or_count = msg.seq_or_count;
-            
+
+            cout << "[subscriber " << id() << "] calling send_meesage()" << endl;
             if (!NetworkUtils::send_message(server_sock, ack_msg)) {
+                cout << "[subscriber " << id() << "] done calling send_meesage()" << endl;
                 break;
             }
+            cout << "[subscriber " << id() << "] done calling send_meesage()" << endl;
         }
         close(server_sock);
+        cout << "[subscriber " << id() << "] handle_connection() exitting" << endl;
     }
     
     void Subscriber::process_for_quorum(const Message &msg) {
@@ -70,8 +78,8 @@ namespace impl {
             cout << "invalid server: " << msg.sender_id << endl;
             return;
         }
-        //cout << "[subscriber " << id() << "] received message from server " << msg.sender_id
-             //     << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << endl;
+        cout << "[subscriber " << id() << "] received message from server " << msg.sender_id
+                  << " (seq: " << msg.seq_or_count << ", type: " << msg.type << ")" << endl;
 
         // obtain lock
         lock_guard<mutex> lock(mu_);
@@ -157,8 +165,8 @@ namespace impl {
     }
     
     Subscriber::~Subscriber() {
+        connection_pool_.close_all();
         shutdown();
         print_expanded_log();
-        connection_pool_.close_all();
     }
 }}

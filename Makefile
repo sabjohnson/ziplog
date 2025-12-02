@@ -24,9 +24,12 @@ COMMON_HEADERS = api/common.h api/types.h api/config.h api/message.h api/network
 TEST_LIBS = -lgtest -lgtest_main -lpthread
 TEST_RUNNER = test_runner
 
+# Link flags - ADD -fsanitize=address here too
+LDFLAGS = -fsanitize=address -lpthread
+
 # Build main executable
 $(TARGET): $(OBJECTS) | check_json
-	$(CXX) $(OBJECTS) -o $(TARGET)
+	$(CXX) $(OBJECTS) -o $(TARGET) $(LDFLAGS)
 
 # Compile source files - create directory structure in obj/
 # (| = order-only prereq: ensure json.hpp exists but don't rebuild if check_json runs)

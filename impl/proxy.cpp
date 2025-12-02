@@ -46,16 +46,19 @@ namespace impl {
             epoch_thread_.join();
         }
 
-        lock_guard<mutex> lock(mu_);
+        {
+            lock_guard<mutex> lock(mu_);
 
-        Message failure;
-        failure.type = FAILURE;
-        for (int client : client_sockets_) {
-            cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
-            NetworkUtils::send_message(client, failure);
-            close(client);
+            Message failure;
+            failure.type = FAILURE;
+            for (int client : client_sockets_) {
+                cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
+                NetworkUtils::send_message(client, failure);
+                close(client);
+            }
         }
 
+        connection_pool_.close_all();
         shutdown();
 
     }
@@ -65,51 +68,57 @@ namespace impl {
      ----------------------------------------------------------------------------------------------------------------------- */
 
     void Proxy::handle_connection(int client_socket) {
-        // read from and respond to valid request
-        Message req;
-        if (!NetworkUtils::recv_message(client_socket, req)) {
-            close(client_socket);
-            return;
-        }
-
-        cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
-
-        // build and send response
-        Message resp;
-        resp.type = ACK;
-
-        if (req.type == APPEND) {
-            if (registered_) {
-                handle_append(client_socket, req.data);
-                return;
-            } else {
-                cout << "[proxy " << id() << "] not registered yet" << endl;
-                Message resp;
-                resp.type = FAILURE;
-                NetworkUtils::send_message(client_socket, resp);
+        while (running()) {
+            // read from and respond to valid request
+            Message req;
+            if (!NetworkUtils::recv_message(client_socket, req)) {
                 close(client_socket);
                 return;
             }
-        } else if (req.type == ZIP_RESPONSE) {
-            handle_zip_response(req);
-        }
 
-        else if (req.type == INCLUDE_PROXY) {
-            if (!registered_) {
-                registered_ = true;
-                start_epochs();
-                cout << "[proxy " << id() << "] ------------------------------------- joining the system" << endl;
+            cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
+
+            // build and send response
+            Message resp;
+            resp.type = ACK;
+
+            if (req.type == APPEND) {
+                if (registered_) {
+                    handle_append(client_socket, req.data);
+                    return;
+                } else {
+                    cout << "[proxy " << id() << "] not registered yet" << endl;
+                    Message resp;
+                    resp.type = FAILURE;
+                    NetworkUtils::send_message(client_socket, resp);
+                    close(client_socket);
+                    return;
+                }
+            } else if (req.type == ZIP_RESPONSE) {
+                handle_zip_response(req);
+                close(client_socket);
+                return;
             }
-        }
 
-        else if (req.type == FREEZE) {
-            registered_ = false;
-            attempt_join(false);
-        }
+            else if (req.type == INCLUDE_PROXY) {
+                if (!registered_) {
+                    registered_ = true;
+                    start_epochs();
+                    cout << "[proxy " << id() << "] ------------------------------------- joining the system" << endl;
+                }
+                close(client_socket);
+                return;
+            }
 
-        // send response
-        NetworkUtils::send_message(client_socket, resp);
-        close(client_socket);
+            else if (req.type == FREEZE) {
+                registered_ = false;
+                attempt_join(false);
+            }
+
+            // send response
+            NetworkUtils::send_message(client_socket, resp);
+            close(client_socket);
+        }
     }
 
     void Proxy::handle_append(int client_socket, const Command& data) {
@@ -132,14 +141,29 @@ namespace impl {
         vector<future<bool>> futures;
 
         for (size_t i = 0; i < num_servers(); i++) {
-            auto [server_ip, server_port] = config_.servers[i];
+            Address server = config_.servers[i];
 
-            futures.push_back(std::async(std::launch::async, [=, &msg]() {
-                Message resp;
-                if (NetworkUtils::send_message_to_address(server_ip, server_port, msg, resp, config_.max_retries)) {
-                    return resp.type == ACK;
+            futures.push_back(std::async(std::launch::async, [this, server, msg, i]() {
+                int sock = connection_pool_.get_connection(server);
+                if (sock < 0) {
+                    std::cerr << "[proxy " << id() << "] failed to connect to server " << i << std::endl;
+                    return false;
                 }
-                return false;
+
+                if (!NetworkUtils::send_message(sock, msg)) {
+                    std::cerr << "[proxy " << id() << "] failed to send to server " << i << std::endl;
+                    connection_pool_.close_connection(server);
+                    return false;
+                }
+
+                Message ack;
+                if (!NetworkUtils::recv_message(sock, ack)) {
+                    std::cerr << "[proxy " << id() << "] failed to recv ack from server " << i << std::endl;
+                    connection_pool_.close_connection(server);
+                    return false;
+                }
+
+                return true;
             }));
         }
 
@@ -179,13 +203,9 @@ namespace impl {
         string addr_info = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr_info.begin(), addr_info.end());
 
-        Message resp;
-        NetworkUtils::send_message_to_address(
-            config_.zipper.ip,
-            config_.zipper.port,
-            req, resp,
-            config_.max_retries
-        );
+        int sock = connection_pool_.get_connection(config_.zipper);
+        if (sock < 0) return;
+        NetworkUtils::send_message(sock, req);
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -256,7 +276,12 @@ namespace impl {
         Message resp;
         cout << "req seq: " << zip_req.seq_or_count << endl;
 
-        if (NetworkUtils::send_message_to_address(config_.zipper.ip, config_.zipper.port, zip_req, resp, config_.max_retries)) {
+        int sock = connection_pool_.get_connection(config_.zipper);
+        if (sock < 0) {
+            cout << "could not send to zipper" << endl;
+            return;
+        }
+        if (NetworkUtils::send_message(sock, zip_req)) {
             cout << "sent to zipper" << endl;
         } else {
             cout << "could not send to zipper" << endl;

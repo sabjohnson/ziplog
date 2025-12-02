@@ -107,7 +107,6 @@ protected:
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
 
-/*
 TEST_F(E2ETest, Setup1_SingleAppend) {
     StartSystem("config/setup1.json");
 
@@ -269,4 +268,3 @@ TEST_F(E2ETest, Setup1_TwoClientsSingleAppendTwoEpochs) {
 
     ASSERT_EQ(expected.empty(), true);
 }
-*/

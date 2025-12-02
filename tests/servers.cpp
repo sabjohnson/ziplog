@@ -111,12 +111,24 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-/*
+
 TEST_F(E2ETest, Recovery_ServerDiesDuringRecoveryProtocol) {
     StartSystem("config/servers_test.json");  // 1 proxy, 3 servers, 1 subscriber
 
+    // Kill proxy 0 immediately
+    proxies[0].reset();
+    std::cout << "[TEST] Killed proxy 0" << std::endl;
+
     std::thread recovery_simulator([&]() {
         std::this_thread::sleep_for(1000ms);
+
+        auto [zipper_ip, zipper_port] = config.zipper;
+        int zipper_sock = NetworkUtils::connect_to_address_persistent(zipper_ip, zipper_port);
+        if (zipper_sock < 0) {
+            std::cout << "[TEST] Failed to connect to zipper" << std::endl;
+            ASSERT_TRUE(false);
+            return;
+        }
 
         // Step 1: Simulate proxy 0 sending message to only server 0, then dying
         Message zip_req;
@@ -125,45 +137,42 @@ TEST_F(E2ETest, Recovery_ServerDiesDuringRecoveryProtocol) {
         zip_req.sender_id = 0;
         zip_req.set_num_requests(1);
 
-        auto [zipper_ip, zipper_port] = config.zipper;
-        Message zip_resp;
-
-        if (NetworkUtils::send_message_to_address(zipper_ip, zipper_port, zip_req, zip_resp, config.max_retries)) {
-            std::this_thread::sleep_for(1000ms);
-
-            // Send APPEND with seq 1 to ONLY server 0
-            Message msg;
-            msg.type = APPEND;
-            msg.shard_id = 0;
-            msg.sender_id = 0;
-            msg.set_sequence_number(1);
-
-            CommandBatch batch;
-            batch.add_command(string_to_command("message A"));
-            msg.data = batch.serialize();
-
-            auto [server0_ip, server0_port] = config.servers[0];
-            Message ack;
-            NetworkUtils::send_message_to_address(server0_ip, server0_port, msg, ack, config.max_retries);
-
-            std::cout << "[TEST] Sent message A to server 0 only" << std::endl;
-
-            // Kill proxy 0 immediately
-            proxies[0].reset();
-            std::cout << "[TEST] Killed proxy 0" << std::endl;
-
-            // Wait for failure detection to trigger (epoch + lag)
-            std::this_thread::sleep_for(500ms); // 2500 for message a
-
-            // At this point, recovery should be starting
-            // Kill server 0 right as it starts broadcasting TRANSFER_REQUEST
-            std::cout << "[TEST] Killing server 0 as recovery begins" << std::endl;
-            servers[0].reset();
-
-            // The zipper will send SKIP for sequence 1 since it thinks it wasn't used
-            std::cout << "[TEST] Waiting for recovery to complete" << std::endl;
-            std::this_thread::sleep_for(3000ms);
+         if (!NetworkUtils::send_message(zipper_sock, zip_req)) {
+            std::cout << "[TEST] Failed to send ZIP_REQUEST" << std::endl;
+            close(zipper_sock);
+            return;
         }
+
+        std::this_thread::sleep_for(1000ms);
+
+        // Send APPEND with seq 1 to ONLY server 0
+        Message msg;
+        msg.type = APPEND;
+        msg.shard_id = 0;
+        msg.sender_id = 0;
+        msg.set_sequence_number(1);
+
+        CommandBatch batch;
+        batch.add_command(string_to_command("message A"));
+        msg.data = batch.serialize();
+
+        auto [server0_ip, server0_port] = config.servers[0];
+        Message ack;
+        NetworkUtils::send_message_to_address(server0_ip, server0_port, msg, ack, config.max_retries);
+
+        std::cout << "[TEST] Sent message A to server 0 only" << std::endl;
+
+        // Wait for failure detection to trigger (epoch + lag)
+        std::this_thread::sleep_for(500ms); // 2500 for message a
+
+        // At this point, recovery should be starting
+        // Kill server 0 right as it starts broadcasting TRANSFER_REQUEST
+        std::cout << "[TEST] Killing server 0 as recovery begins" << std::endl;
+        servers[0].reset();
+
+        // The zipper will send SKIP for sequence 1 since it thinks it wasn't used
+        std::cout << "[TEST] Waiting for recovery to complete" << std::endl;
+        std::this_thread::sleep_for(3000ms);
     });
 
     recovery_simulator.join();
@@ -260,4 +269,3 @@ TEST_F(E2ETest, Liveness_SystemContinuesWithNMinusFServers) {
 
     std::cout << "[TEST] System successfully continued with n-f servers" << std::endl;
 }
-*/

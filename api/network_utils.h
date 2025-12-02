@@ -86,5 +86,6 @@ namespace api {
         */
         static bool connect_to_address(int socket, const string& ip, int port);
 
+        static int connect_to_address_persistent(const string& ip, int port);
     };
 }}

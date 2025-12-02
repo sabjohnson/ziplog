@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/socket.h>  // accept()
 #include <netinet/in.h>  // sockaddr_in
+#include <condition_variable>
 
 using namespace ziplog::api;
 
@@ -18,7 +19,11 @@ namespace impl {
         int sock_;
         thread running_thread_;
 
-         BaseNode(const ConfigType& cfg)
+        // track accepted connections
+        vector<int> accepted_sockets_;
+        mutex mu_;  // used for accepted connection
+
+        BaseNode(const ConfigType& cfg)
             : config_(cfg)
             , is_running_(false)
             , sock_(-1)
@@ -69,8 +74,24 @@ namespace impl {
                     }
                 }
 
+                // track the socket
+                {
+                    lock_guard<mutex> lock(mu_);
+                    accepted_sockets_.push_back(client_socket);
+                }
+
                 // handle connection in thread (https://en.cppreference.com/w/cpp/thread/thread/thread.html)
-                thread(&BaseNode::handle_connection, this, client_socket).detach();
+                thread([this, client_socket] () {
+                    handle_connection(client_socket);
+                    // stop tracking the socket
+                    {
+                        lock_guard<mutex> lock(mu_);
+                        auto it = find(accepted_sockets_.begin(), accepted_sockets_.end(), client_socket);
+                        if (it != accepted_sockets_.end()) {
+                            accepted_sockets_.erase(it);
+                        }
+                    }
+                }).detach();
             }
         }
 
@@ -107,6 +128,15 @@ namespace impl {
                 ::shutdown(sock_, SHUT_RDWR);
                 close(sock_);
                 sock_ = -1;
+            }
+            // close all accepted sockets
+            {
+                lock_guard<mutex> lock(mu_);
+                for (int sock : accepted_sockets_) {
+                    ::shutdown(sock, SHUT_RDWR);
+                    close(sock);
+                }
+                accepted_sockets_.clear();
             }
         }
     };

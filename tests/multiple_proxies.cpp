@@ -41,6 +41,7 @@ protected:
         for (size_t i = 0; i < config.num_proxies(); i++) {
             proxies.push_back(std::make_unique<Proxy>(config.make_proxy_config(i)));
         }
+        std::this_thread::sleep_for(100ms);
 
         for (size_t i = 0; i < config.num_proxies(); i++) {
             clients.push_back(std::make_unique<Client>(config, i));
@@ -111,7 +112,7 @@ protected:
     vector<std::unique_ptr<Server>> servers;
     vector<std::unique_ptr<Subscriber>> subscribers;
 };
-/*
+
 TEST_F(E2ETest, Multiple_SingleAppend) {
     StartSystem("config/servers.json");
 
@@ -176,19 +177,17 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxy) {
 TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     StartSystem("config/servers.json");
 
+    // kill proxy 0 (we will simulate its messages)
+    proxies[0].reset();
+
     // client sends append (client 0 to proxy 0, client 1 to proxy 1 and so on...)
     std::thread t1([&]() { ASSERT_FALSE(send_append(0, "amish donuts ")); });
     std::this_thread::sleep_for(50ms);
     std::thread t2([&]() { ASSERT_TRUE(send_append(1, "are the ")); });
     std::this_thread::sleep_for(50ms);
     std::thread t3([&]() { ASSERT_TRUE(send_append(2, "best")); });
-    std::thread killer([&]() {
-        std::this_thread::sleep_for(1100ms);
-        proxies[0].reset();
-    });
 
-
-    t1.join(); t2.join(); t3.join(); killer.join();
+    t1.join(); t2.join(); t3.join();
 
     // wait for propagation (3 epochs)
     wait_for_propagation();
@@ -210,12 +209,20 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
 TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
     StartSystem("config/servers.json");
 
-    std::thread killer([&]() {
+    std::thread simulator([&]() {
         // kill proxy 0 immediately
         proxies[0].reset();
 
         // simulate zip request of 1 client request to proxy 0
         std::this_thread::sleep_for(100ms);  // Let system start
+
+        auto [zipper_ip, zipper_port] = config.zipper;
+        int zipper_sock = NetworkUtils::connect_to_address_persistent(zipper_ip, zipper_port);
+        if (zipper_sock < 0) {
+            std::cout << "[TEST] Failed to connect to zipper" << std::endl;
+            ASSERT_TRUE(false);
+            return;
+        }
 
         Message zip_req;
         zip_req.type = ZIP_REQUEST;
@@ -223,12 +230,9 @@ TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
         zip_req.sender_id = 0;  // Proxy 0
         zip_req.set_num_requests(1);  // Request 1 slot
 
-        auto [zipper_ip, zipper_port] = config.zipper;
-        Message zip_resp;
-
-        if (NetworkUtils::send_message_to_address(zipper_ip, zipper_port, zip_req, zip_resp, config.max_retries)) {
+        if (NetworkUtils::send_message(zipper_sock, zip_req)) {
             // wait for zipper to allocate sequences
-            std::this_thread::sleep_for(1000ms);
+            std::this_thread::sleep_for(1500ms);
 
             // we know it will be sequence 1 in the first epoch
             SequenceNumber allocated_seq = 1;
@@ -249,6 +253,9 @@ TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
             NetworkUtils::send_message_to_address(server_ip, server_port, msg, ack, config.max_retries);
 
             std::cout << "[TEST] Sent message to server 0 only with seq " << allocated_seq << std::endl;
+        } else {
+            std::cout << "[TEST] Failed to send to zipper" << std::endl;
+            ASSERT_TRUE(false);
         }
     });
 
@@ -260,7 +267,7 @@ TEST_F(E2ETest, Multiple_PartialReplication_OneServerGetsRequest) {
 
     t2.join();
     t3.join();
-    killer.join();
+    simulator.join();
 
     wait_for_propagation();
 
@@ -307,7 +314,7 @@ TEST_F(E2ETest, Multiple_StressAppend) {
     vector<vector<Command>> log = expand_log(original_log);
     ASSERT_EQ(log.size(), 300);
 }
-
+/*
 TEST_F(E2ETest, Multiple_StressAppend3ClientsOneProxy) {
     StartSystem("config/performance.json");
 

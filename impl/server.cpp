@@ -19,7 +19,7 @@ namespace impl {
     }
 
     void Server::handle_connection(int proxy_socket) {
-        while (is_running_) {
+        while (running()) {
             // recv message from proxy
             Message msg;
             if (!NetworkUtils::recv_message(proxy_socket, msg)) {
@@ -72,12 +72,6 @@ namespace impl {
 
             else if (msg.type == FREEZE_COMPLETE) {
                 block_proxy(msg);
-
-                Message ack_msg;
-                ack_msg.type = ACK;
-                ack_msg.shard_id = shard();
-                ack_msg.sender_id = id();
-                NetworkUtils::send_message(proxy_socket, ack_msg);
             }
 
             else if (msg.type == INCLUDE_PROXY) {
@@ -96,11 +90,12 @@ namespace impl {
                 size_t colon_pos = addr_info.find(':');
                 string ip = addr_info.substr(0, colon_pos);
                 int port = std::stoi(addr_info.substr(colon_pos + 1));
+                Address subscriber = Address(ip, port);
 
-               mu_.lock();
-               config_.subscribers.push_back(Address(ip, port));
-               unordered_map<NodeId, deque<Message>> messages_copy = proxy_messages_;
-               mu_.unlock();
+                mu_.lock();
+                config_.subscribers.push_back(Address(ip, port));
+                unordered_map<NodeId, deque<Message>> messages_copy = proxy_messages_;
+                mu_.unlock();
 
                 Message ack_msg;
                 ack_msg.type = ACK;
@@ -109,15 +104,19 @@ namespace impl {
                 NetworkUtils::send_message(proxy_socket, ack_msg);
 
                 // send all stored messages
-                for (const auto& [proxy_id, messages] : messages_copy) {
-                    if (is_blocked(proxy_id)) continue;
+                int sock = connection_pool_.get_connection(subscriber);
+                if (sock >= 0) {
+                    for (const auto& [proxy_id, messages] : messages_copy) {
+                        if (is_blocked(proxy_id)) continue;
 
-                    for (const auto& stored_msg : messages) {
-                        Message fwd_msg = stored_msg;
-                        fwd_msg.sender_id = id();
+                        for (const auto& stored_msg : messages) {
+                            Message fwd_msg = stored_msg;
+                            fwd_msg.sender_id = id();
+                            Message ack;
 
-                        Message ack;
-                        NetworkUtils::send_message_to_address(ip, port, fwd_msg, ack, config_.max_retries);
+                            NetworkUtils::send_message(sock, stored_msg);
+                            NetworkUtils::recv_message(sock, ack);
+                        }
                     }
                 }
             }
@@ -174,24 +173,22 @@ namespace impl {
         // bcast that to all other servers
         cout << "[server " << id() << "] bcasting transfer" << endl;
         for (NodeId i = 0; i < config_.other_servers.size(); i++) {
-            const auto& [server_ip, server_port] = config_.other_servers[i];
+            Address server = config_.other_servers[i];
 
-            int socket = NetworkUtils::create_connector_socket();
-            if (socket < 0) continue;
-
-            if (!NetworkUtils::connect_to_address(socket, server_ip, server_port)) {
-                close(socket);
+            int sock = connection_pool_.get_connection(server);
+            if (sock < 0) {
+                cout << "[server " << id() << "] failed to connect to server " << i << endl;
                 continue;
             }
 
-            if (!NetworkUtils::send_message(socket, transfer)) {
-                close(socket);
+            if (!NetworkUtils::send_message(sock, transfer)) {
+                cout << "[server " << id() << "] failed to send transfer to server " << i << endl;
                 continue;
             }
 
             while (true) {
                 Message resp;
-                if (!NetworkUtils::recv_message(socket, resp)) {
+                if (!NetworkUtils::recv_message(sock, resp)) {
                     cout << "[server " << id() << "] coudnlt recv on connection" << endl;
                     break;
                 }
@@ -209,7 +206,6 @@ namespace impl {
 
                 broadcast_to_subscribers(resp);
             }
-            close(socket);
         }
 
         // determine the latest
@@ -224,13 +220,9 @@ namespace impl {
         cout << "[server " << id() << "] passed data collection.last seq = " << last_used_sequence_number_[failed_proxy] << endl;
         mu_.unlock();
 
-        int sock = NetworkUtils::create_connector_socket();
-        if (sock < 0) return;
-
-        if (NetworkUtils::connect_to_address(sock, config_.zipper.ip, config_.zipper.port)) {
-            NetworkUtils::send_message(sock, freeze_response);
-        }
-        close(sock);
+        int zip_sock = connection_pool_.get_connection(config_.zipper);
+        if (zip_sock < 0) return;
+        NetworkUtils::send_message(zip_sock, freeze_response);
     }
 
     void Server:: handle_transfer_request(int socket, const Message& msg) {
@@ -326,14 +318,26 @@ namespace impl {
 
         vector<future<bool>> futures;
         for (size_t i = 0; i < subs_copy.size(); i++) {
-            auto [subscriber_ip, subscriber_port] = subs_copy[i];
+            Address subscriber = subs_copy[i];
 
-            futures.push_back(std::async(std::launch::async, [=]() {
-                Message ack;
-                if (!NetworkUtils::send_message_to_address(subscriber_ip, subscriber_port, fwd_msg, ack, config_.max_retries)) {
-                    std::cerr << "Server " << id() << " failed to deliver to subscriber " << i << " after " << config_.max_retries << " attempts" << std::endl;
+            futures.push_back(std::async(std::launch::async, [this, subscriber, fwd_msg, i]() {
+                int sock = connection_pool_.get_connection(subscriber);
+                if (sock < 0) {
+                    std::cerr << "Server " << id() << " failed to connect to subscriber " << i << std::endl;
                     return false;
                 }
+
+                if (!NetworkUtils::send_message(sock, fwd_msg)) {
+                    std::cerr << "Server " << id() << " failed to send to subscriber " << i << std::endl;
+                    return false;
+                }
+
+                Message ack;
+                if (!NetworkUtils::recv_message(sock, ack)) {
+                    std::cerr << "Server " << id() << " failed to recv ACK from subscriber " << i << std::endl;
+                    return false;
+                }
+
                 return true;
             }));
         }
@@ -402,6 +406,7 @@ namespace impl {
         if (failure_detector_thread_.joinable()) {
             failure_detector_thread_.join();
         }
+        connection_pool_.close_all();
         shutdown();
     }
 
@@ -430,8 +435,6 @@ namespace impl {
 
     void Server::report(NodeId proxy_id) {
         cout << "[server " << id() << "] reporting proxy " << proxy_id << endl;
-        auto [zipper_ip, zipper_port] = config_.zipper;
-
         // build and send report to zipper
         Message req;
         req.type = REPORT;
@@ -439,7 +442,8 @@ namespace impl {
         req.sender_id = id();
         req.set_failed_proxy(proxy_id);
 
-        Message resp;
-        NetworkUtils::send_message_to_address(zipper_ip, zipper_port, req, resp, config_.max_retries);
+        int sock = connection_pool_.get_connection(config_.zipper);
+        if (sock < 0) return;
+        NetworkUtils::send_message(sock, req);
     }
 }}

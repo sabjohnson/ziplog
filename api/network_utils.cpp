@@ -80,7 +80,7 @@ namespace api {
         size_t sent = 0;
 
         while (sent < len) {
-            ssize_t result = send(socket, ptr + sent, len - sent, 0);
+            ssize_t result = send(socket, ptr + sent, len - sent, MSG_NOSIGNAL);
             if (result <= 0) {
                 return false;
             }
@@ -196,6 +196,20 @@ namespace api {
         }
 
         return sockfd;
+    }
+
+    int NetworkUtils::connect_to_address_persistent(const string& ip, int port) {
+        int sock = create_connector_socket();
+        if (sock < 0) {
+            return -1;
+        }
+
+        if (!connect_to_address(sock, ip, port)) {
+            close(sock);
+            return -1;
+        }
+
+        return sock;
     }
 
 }}
