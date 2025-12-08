@@ -54,7 +54,7 @@ namespace impl {
             for (int client : client_sockets_) {
                 cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
                 NetworkUtils::send_message(client, failure);
-                close(client);
+                //close(client);
             }
         }
 
@@ -72,7 +72,7 @@ namespace impl {
             // read from and respond to valid request
             Message req;
             if (!NetworkUtils::recv_message(client_socket, req)) {
-                close(client_socket);
+                //close(client_socket);
                 return;
             }
 
@@ -91,12 +91,12 @@ namespace impl {
                     Message resp;
                     resp.type = FAILURE;
                     NetworkUtils::send_message(client_socket, resp);
-                    close(client_socket);
+                    //close(client_socket);
                     return;
                 }
             } else if (req.type == ZIP_RESPONSE) {
                 handle_zip_response(req);
-                close(client_socket);
+                //close(client_socket);
                 return;
             }
 
@@ -106,7 +106,7 @@ namespace impl {
                     start_epochs();
                     cout << "[proxy " << id() << "] ------------------------------------- joining the system" << endl;
                 }
-                close(client_socket);
+                //close(client_socket);
                 return;
             }
 
@@ -117,7 +117,7 @@ namespace impl {
 
             // send response
             NetworkUtils::send_message(client_socket, resp);
-            close(client_socket);
+            //close(client_socket);
         }
     }
 
@@ -146,19 +146,19 @@ namespace impl {
             futures.push_back(std::async(std::launch::async, [this, server, msg, i]() {
                 int sock = connection_pool_.get_connection(server);
                 if (sock < 0) {
-                    std::cerr << "[proxy " << id() << "] failed to connect to server " << i << std::endl;
+                    //std::cerr << "[proxy " << id() << "] failed to connect to server " << i << std::endl;
                     return false;
                 }
 
                 if (!NetworkUtils::send_message(sock, msg)) {
-                    std::cerr << "[proxy " << id() << "] failed to send to server " << i << std::endl;
+                    //std::cerr << "[proxy " << id() << "] failed to send to server " << i << std::endl;
                     connection_pool_.close_connection(server);
                     return false;
                 }
 
                 Message ack;
                 if (!NetworkUtils::recv_message(sock, ack)) {
-                    std::cerr << "[proxy " << id() << "] failed to recv ack from server " << i << std::endl;
+                    //std::cerr << "[proxy " << id() << "] failed to recv ack from server " << i << std::endl;
                     connection_pool_.close_connection(server);
                     return false;
                 }
@@ -247,7 +247,7 @@ namespace impl {
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
-        cout << "request count = " << request_count_ << endl;
+        //cout << "request count = " << request_count_ << endl;
         if (estimate_history_.size() > static_cast<long unsigned int>(config_.max_epoch_history)) {
             estimate_history_.pop_front();
         }
@@ -348,7 +348,7 @@ namespace impl {
 
         for (int client : clients_to_respond) {
             NetworkUtils::send_message(client, resp);
-            close(client);
+            //close(client);
         }
     }
 }}

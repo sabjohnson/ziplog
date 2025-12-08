@@ -1,6 +1,6 @@
 #pragma once
 #include "config.h"
-#include "network_utils.h"
+#include "connection_pool.h"
 
 using namespace ziplog::api;
 
@@ -9,11 +9,11 @@ namespace impl {
 
     class Client {
     private:
-        ZiplogConfig config_;
-        NodeId proxy_id_;
+        Address proxy_;
+        ConnectionPool connection_pool_;
 
     public:
-        Client(const ZiplogConfig& cfg, NodeId proxy_id);
+        Client(Address proxy);
 
         bool append(const Command& data);
 

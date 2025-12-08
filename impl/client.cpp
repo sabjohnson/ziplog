@@ -5,22 +5,22 @@ using namespace ziplog::api;
 namespace ziplog {
 namespace impl {
 
-    Client::Client(const ZiplogConfig& cfg, NodeId proxy_id)
-        : config_(cfg)
-        , proxy_id_(proxy_id)
-    {
-        //validate_node_id(proxy_id, cfg.num_proxies(), "Proxy");
+    Client::Client(Address proxy) {
+        proxy_ = proxy;
     }
 
     bool Client::append(const Command& data) {
-        auto [proxy_ip, proxy_port] = config_.proxies[proxy_id_];
+        int sock = connection_pool_.get_connection(proxy_);
+        if (sock >= 0) {
+            Message req;
+            req.type = APPEND;
+            req.data = data;
 
-        Message msg;
-        msg.type = APPEND;
-        msg.data = data;
+            if (!NetworkUtils::send_message(sock, req)) return false;
 
-        Message resp;
-        if (NetworkUtils::send_message_to_address(proxy_ip, proxy_port, msg, resp, config_.max_retries)) {
+            Message resp;
+            if (!NetworkUtils::recv_message(sock, resp)) return false;
+
             return resp.type == SUCCESS;
         }
         return false;

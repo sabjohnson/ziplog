@@ -1,9 +1,6 @@
-#include "zipper.h"
-#include "client.h"
-#include "proxy.h"
-#include "server.h"
-#include "subscriber.h"
-#include <gtest/gtest.h>
+#include "test_utils.h"
+
+using namespace ziplog::test;
 
 /*
     * all tests are using one shard *
@@ -14,97 +11,8 @@
     setup4:     2       1       2       2           setup4.json (make clients manually)
 */
 
-using namespace ziplog::api;
-using namespace ziplog::impl;
-
-class E2ETest : public ::testing::Test {
-protected:
-    void SetUp() override {
-
-    }
-
-    void StartSystem(const string& filename) {
-        // load test config
-        config = parse_config(filename);
-
-        // start all components
-        zipper = std::make_unique<Zipper>(config.make_zipper_config());
-        std::this_thread::sleep_for(100ms);
-
-        for (size_t i = 0; i < config.num_subscribers(); i++) {
-            subscribers.push_back(std::make_unique<Subscriber>(config.make_subscriber_config(i)));
-        }
-        std::this_thread::sleep_for(100ms);
-
-        for (size_t i = 0; i < config.num_servers(); i++) {
-            servers.push_back(std::make_unique<Server>(config.make_server_config(i)));
-        }
-        std::this_thread::sleep_for(100ms);
-
-        for (size_t i = 0; i < config.num_proxies(); i++) {
-            proxies.push_back(std::make_unique<Proxy>(config.make_proxy_config(i)));
-        }
-
-        for (size_t i = 0; i < config.num_proxies(); i++) {
-            clients.push_back(std::make_unique<Client>(config, i));
-        }
-    }
-
-    void TearDown() override {
-        clients.clear();
-        subscribers.clear();
-        servers.clear();
-        proxies.clear();
-        zipper.reset();
-    }
-
-    /*
-        @param client_id: Client/proxy id we want to talk to
-        @return: True if successful response from proxy
-    */
-    bool send_append(NodeId client_id, const string& cmd) {
-        if (client_id >= clients.size()) return false;
-        return clients[client_id]->append(string_to_command(cmd));
-    }
-
-    void wait_for_propagation(int num = 3) {
-        auto duration = num * ziplog::EPOCH_DURATION_MS;
-        std::this_thread::sleep_for(milliseconds(duration));
-    }
-
-    /*
-        @brief: verifies the provided vector or commands matches the expected size and entries (as strings)
-        @return: True if condition holds, false otherwise.
-    */
-    void verify_index_matches_expected(vector<Command> output, vector<string> expected) {
-        ASSERT_EQ(output.size(), expected.size());
-        for (size_t i = 0; i < expected.size(); i++) {
-            EXPECT_EQ(command_to_string(output[i]), expected[i]);
-        }
-    }
-
-    /*
-        @brief: Removes skips and expands batched commands
-        @return: Expanded log
-    */
-    vector<vector<Command>> expand_log(const vector<Command> original_log) {
-        vector<vector<Command>> log;
-
-        // expand all non-empty entries (may be batches)
-        for (const Command& entry : original_log) {
-            vector<Command> batch = CommandBatch::deserialize(entry);
-            if (!batch.empty()) log.push_back(batch);
-        }
-
-        return log;
-    }
-
-    ZiplogConfig config;
-    std::unique_ptr<Zipper> zipper;
-    vector<std::unique_ptr<Client>> clients;    // client 0 to proxy 0 and so on...
-    vector<std::unique_ptr<Proxy>> proxies;
-    vector<std::unique_ptr<Server>> servers;
-    vector<std::unique_ptr<Subscriber>> subscribers;
+class E2ETest : public ZiplogTestBase {
+    // inherits from setup, tear down and utility functions from import file
 };
 
 TEST_F(E2ETest, Setup1_SingleAppend) {
@@ -187,11 +95,11 @@ TEST_F(E2ETest, Setup1_TwoClientsSingleAppend) {
 
     //
     std::thread t1([&]() {
-        auto c0 = std::make_unique<Client>(config, 0);
+        auto c0 = std::make_unique<Client>(config.proxies[0]);
         ASSERT_TRUE(c0->append(string_to_command("client 0")));
     });
     std::thread t2([&]() {
-        auto c1 = std::make_unique<Client>(config, 0);
+        auto c1 = std::make_unique<Client>(config.proxies[0]);
         ASSERT_TRUE(c1->append(string_to_command("client 1")));
     });
 
@@ -224,13 +132,13 @@ TEST_F(E2ETest, Setup1_TwoClientsSingleAppendTwoEpochs) {
 
     //
     std::thread t1([&]() {
-        auto c0 = std::make_unique<Client>(config, 0);
+        auto c0 = std::make_unique<Client>(config.proxies[0]);
         ASSERT_TRUE(c0->append(string_to_command("0,0")));
         wait_for_propagation(1);
         ASSERT_TRUE(c0->append(string_to_command("0,1")));
     });
     std::thread t2([&]() {
-        auto c1 = std::make_unique<Client>(config, 0);
+        auto c1 = std::make_unique<Client>(config.proxies[0]);
         ASSERT_TRUE(c1->append(string_to_command("1,0")));
         wait_for_propagation(1);
         ASSERT_TRUE(c1->append(string_to_command("1,1")));

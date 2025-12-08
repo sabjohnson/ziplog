@@ -171,29 +171,29 @@ namespace impl {
         mu_.unlock();
 
         // bcast that to all other servers
-        cout << "[server " << id() << "] bcasting transfer" << endl;
+        //cout << "[server " << id() << "] bcasting transfer" << endl;
         for (NodeId i = 0; i < config_.other_servers.size(); i++) {
             Address server = config_.other_servers[i];
 
             int sock = connection_pool_.get_connection(server);
             if (sock < 0) {
-                cout << "[server " << id() << "] failed to connect to server " << i << endl;
+                //cout << "[server " << id() << "] failed to connect to server " << i << endl;
                 continue;
             }
 
             if (!NetworkUtils::send_message(sock, transfer)) {
-                cout << "[server " << id() << "] failed to send transfer to server " << i << endl;
+                //cout << "[server " << id() << "] failed to send transfer to server " << i << endl;
                 continue;
             }
 
             while (true) {
                 Message resp;
                 if (!NetworkUtils::recv_message(sock, resp)) {
-                    cout << "[server " << id() << "] coudnlt recv on connection" << endl;
+                    //cout << "[server " << id() << "] coudnlt recv on connection" << endl;
                     break;
                 }
                 if (resp.type == ACK) {
-                    cout << "[server " << id() << "] got ack from server " << i << endl;
+                    //cout << "[server " << id() << "] got ack from server " << i << endl;
                     break;
                 }
 
@@ -297,7 +297,7 @@ namespace impl {
             cout << "invalid proxy: " << msg.sender_id << endl;
             return;
         }
-        cout << "[server " << id() << "] got message from proxy " << msg.sender_id << endl;
+        //cout << "[server " << id() << "] got message from proxy " << msg.sender_id << endl;
 
         // verify sender was not blocked for reconfiguration
         if (is_blocked(msg.sender_id)) {
@@ -323,18 +323,18 @@ namespace impl {
             futures.push_back(std::async(std::launch::async, [this, subscriber, fwd_msg, i]() {
                 int sock = connection_pool_.get_connection(subscriber);
                 if (sock < 0) {
-                    std::cerr << "Server " << id() << " failed to connect to subscriber " << i << std::endl;
+                    //std::cerr << "Server " << id() << " failed to connect to subscriber " << i << std::endl;
                     return false;
                 }
 
                 if (!NetworkUtils::send_message(sock, fwd_msg)) {
-                    std::cerr << "Server " << id() << " failed to send to subscriber " << i << std::endl;
+                    //std::cerr << "Server " << id() << " failed to send to subscriber " << i << std::endl;
                     return false;
                 }
 
                 Message ack;
                 if (!NetworkUtils::recv_message(sock, ack)) {
-                    std::cerr << "Server " << id() << " failed to recv ACK from subscriber " << i << std::endl;
+                    //std::cerr << "Server " << id() << " failed to recv ACK from subscriber " << i << std::endl;
                     return false;
                 }
 

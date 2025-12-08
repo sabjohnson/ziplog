@@ -132,14 +132,14 @@ namespace impl {
     }
 
     void Zipper::handle_freeze_response(const Message &msg) {
-        cout << "handle_freeze_response() called" << endl;
+        //cout << "handle_freeze_response() called" << endl;
         mu_.lock();
-        cout << "handle_freeze_response() obtained lock" << endl;
+        //cout << "handle_freeze_response() obtained lock" << endl;
         // return if response is outdated
         NodeId failed_proxy = msg.get_failed_proxy();
         if (rounds_.find(failed_proxy) == rounds_.end() || msg.get_round() != rounds_[failed_proxy]) {
             mu_.unlock();
-            cout << "handle_freeze_response() dont care" << endl;
+            //cout << "handle_freeze_response() dont care" << endl;
             return;
         }
 
@@ -153,17 +153,17 @@ namespace impl {
         int last_seq = -1;
 
         if (rounds_responders_[failed_proxy].size() == quorum()) {
-            cout << "handle_freeze_response() a" << endl;
+            //cout << "handle_freeze_response() a" << endl;
             round_complete = true;
             if (proxy_last_sequence_[failed_proxy].size() == 1) {
-            cout << "handle_freeze_response() b" << endl;
+            //cout << "handle_freeze_response() b" << endl;
                 // bcast freeze complete
                 freeze_complete = true;
                 last_seq = *proxy_last_sequence_[failed_proxy].begin();
             }
         }
         mu_.unlock();
-        cout << "handle_freeze_response() lock released" << endl;
+        //cout << "handle_freeze_response() lock released" << endl;
         if (round_complete) {
             if (freeze_complete) {
                 // bcast freeze complete
@@ -174,7 +174,7 @@ namespace impl {
                 send_freeze(failed_proxy, false);
             }
         }
-        cout << "handle_freeze_response() exitting" << endl;
+        //cout << "handle_freeze_response() exitting" << endl;
     }
 
     void Zipper::send_freeze_complete(NodeId failed_proxy, SequenceNumber last_seq) {
@@ -219,7 +219,6 @@ namespace impl {
                 }
             }
         }
-        cout << "hailey b" << endl;
 
         Message freeze_complete;
         freeze_complete.type = FREEZE_COMPLETE;
@@ -246,7 +245,7 @@ namespace impl {
 
     void Zipper::update_slot_estimate(Message &req) {
         // validate request
-        cout << "[zipper] recv proxy request" << endl;
+        //cout << "[zipper] recv proxy request" << endl;
         if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id)) {
             cout << "unknown prpoxy" << endl;
             return;
