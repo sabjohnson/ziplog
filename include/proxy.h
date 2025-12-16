@@ -1,6 +1,7 @@
 #pragma once
 #include "base_node.h"
 #include "connection_pool.h"
+#include "circular_buffer.h"
 #include <deque>
 
 using namespace ziplog::api;
@@ -23,8 +24,16 @@ namespace impl {
            Timestamp next_send_ = 0;                    // timestamp of next timeouts for sending a batch (is 0 if no slots allocated)
 
            // client request information (commands and sockets)
-           deque<Command> batch_values_;            // the actual command
-           deque<int> client_sockets_;              // so you can respond after sending batch
+           std::unordered_map<int, CircularBuffer<PendingRequest>> client_buffers_;  // socket → buffer
+           std::mutex buffers_mu_;
+
+           // Track which client sockets are pending responses for a given sequence number
+          std::unordered_map<SequenceNumber, std::vector<int>> seq_to_clients_;
+          std::mutex clients_mu_;  // Protects seq_to_clients_
+
+
+           //deque<Command> batch_values_;            // the actual command
+           //deque<int> client_sockets_;              // so you can respond after sending batch
 
            // epoch tracking
            Timestamp epoch_startup_;

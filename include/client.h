@@ -14,6 +14,7 @@ namespace impl {
 
     public:
         Client(Address proxy);
+        ~Client();
 
         bool append(const Command& data);
 

@@ -9,6 +9,10 @@ namespace impl {
         proxy_ = proxy;
     }
 
+    Client::~Client() {
+        connection_pool_.close_all();
+    }
+
     bool Client::append(const Command& data) {
         int sock = connection_pool_.get_connection(proxy_);
         if (sock >= 0) {
@@ -16,10 +20,16 @@ namespace impl {
             req.type = APPEND;
             req.data = data;
 
-            if (!NetworkUtils::send_message(sock, req)) return false;
+            if (!NetworkUtils::send_message(sock, req)) {
+                connection_pool_.close_connection(proxy_);
+                return false;
+            }
 
             Message resp;
-            if (!NetworkUtils::recv_message(sock, resp)) return false;
+            if (!NetworkUtils::recv_message(sock, resp)) {
+                connection_pool_.close_connection(proxy_);
+                return false;
+            }
 
             return resp.type == SUCCESS;
         }

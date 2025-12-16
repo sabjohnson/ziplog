@@ -7,7 +7,14 @@ namespace ziplog {
 namespace impl {
 
     class ConnectionPool {
-        unordered_map<Address, int> active_connections_;  // address struct -> socket
+    private:
+        struct SocketState {
+            int socket;
+            unique_ptr<mutex> mu;   // one mutex per socket
+
+            SocketState(int s) : socket(s), mu(make_unique<mutex>()) {}
+        };
+        unordered_map<Address, shared_ptr<SocketState>> active_connections_;  // address struct -> socket
         mutex mu_;
 
     public:

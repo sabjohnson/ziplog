@@ -89,6 +89,7 @@ namespace api {
     
     std::optional<Message> Message::deserialize(const vector<uint8_t>& buffer) {
         if (buffer.size() < 28) {  // minimum size: 5 fields × 4 bytes each + 8 bytes
+            cout << "billy size = " << buffer.size() << endl;
             return nullopt;
         }
     
@@ -127,6 +128,7 @@ namespace api {
         
         // validate data length
         if (offset + data_len > buffer.size()) {
+            cout << "mandy" << endl;
             return nullopt;  // buffer too small for claimed data length
         }
         
@@ -136,6 +138,7 @@ namespace api {
 
         // read ordering values length
         if (offset + 4 > buffer.size()) {
+            cout << "grim" << endl;
             return nullopt;
         }
         uint32_t ordering_len;
@@ -145,6 +148,7 @@ namespace api {
 
         // validate vector size
         if (offset + (ordering_len * 8) > buffer.size()) {
+            cout << "paul" << endl;
             return nullopt;
         }
 

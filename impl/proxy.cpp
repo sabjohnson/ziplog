@@ -45,7 +45,7 @@ namespace impl {
         if (epoch_thread_.joinable()) {
             epoch_thread_.join();
         }
-
+/*
         {
             lock_guard<mutex> lock(mu_);
 
@@ -57,7 +57,7 @@ namespace impl {
                 //close(client);
             }
         }
-
+*/
         connection_pool_.close_all();
         shutdown();
 
@@ -68,36 +68,54 @@ namespace impl {
      ----------------------------------------------------------------------------------------------------------------------- */
 
     void Proxy::handle_connection(int client_socket) {
-        while (running()) {
+        cout << "[proxy " << id() << "] New client connected on socket " << client_socket << endl;
+
+        while (running() && registered_) {
             // read from and respond to valid request
             Message req;
             if (!NetworkUtils::recv_message(client_socket, req)) {
                 //close(client_socket);
-                return;
+                break;
             }
 
             cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
 
             // build and send response
             Message resp;
-            resp.type = ACK;
 
             if (req.type == APPEND) {
-                if (registered_) {
-                    handle_append(client_socket, req.data);
-                    return;
-                } else {
+                if (!registered_) {
                     cout << "[proxy " << id() << "] not registered yet" << endl;
                     Message resp;
                     resp.type = FAILURE;
                     NetworkUtils::send_message(client_socket, resp);
                     //close(client_socket);
-                    return;
+                    continue;
                 }
-            } else if (req.type == ZIP_RESPONSE) {
+
+                // create pending request
+                PendingRequest pr(req.data, client_socket);
+
+                // add to client's buffer ((blocking operation)
+                if (!client_buffers_[client_socket].push(pr)) {
+                    // This shouldn't happen with blocking push, but handle anyway
+                    cout << "[proxy " << id() << "] Failed to push to buffer (interrupted?)" << endl;
+                    Message resp;
+                    resp.type = FAILURE;
+                    NetworkUtils::send_message(client_socket, resp);
+                    continue;
+                }
+
+                cout << "[proxy " << id() << "] Successfully pushed to buffer. Buffer size: " << client_buffers_[client_socket].size() << endl;
+
+                {
+                    lock_guard<mutex> lock(mu_);
+                    request_count_++;
+                }
+            }
+
+            else if (req.type == ZIP_RESPONSE) {
                 handle_zip_response(req);
-                //close(client_socket);
-                return;
             }
 
             else if (req.type == INCLUDE_PROXY) {
@@ -106,21 +124,22 @@ namespace impl {
                     start_epochs();
                     cout << "[proxy " << id() << "] ------------------------------------- joining the system" << endl;
                 }
-                //close(client_socket);
-                return;
             }
 
             else if (req.type == FREEZE) {
                 registered_ = false;
                 attempt_join(false);
             }
-
-            // send response
-            NetworkUtils::send_message(client_socket, resp);
-            //close(client_socket);
         }
+        close(client_socket);
+        {
+            lock_guard<mutex> lock(buffers_mu_);
+            client_buffers_.erase(client_socket);
+        }
+        cout << "[proxy " << id() << "] Closed connection to client socket " << client_socket << endl;
     }
 
+/*
     void Proxy::handle_append(int client_socket, const Command& data) {
         // obtain lock
         lock_guard<mutex> lock(mu_);
@@ -135,6 +154,7 @@ namespace impl {
         // take note of client socket (respond after its replicated during epoch interval)
         client_sockets_.push_back(client_socket);
     }
+*/
 
     // attempt to replicate on f + 1 storage servers
     bool Proxy::replicate_on_quorum(Message& msg) {
@@ -177,11 +197,11 @@ namespace impl {
     }
 
     void Proxy::handle_zip_response(Message& msg) {
-        // obtain lock
-        lock_guard<mutex> lock(mu_);
-
         // validate zip response
         if (msg.shard_id != shard()) return;
+
+        // obtain lock
+        lock_guard<mutex> lock(mu_);
 
         cout << "[proxy "  << id() << "] got " << msg.get_num_requests() << " slots from the zipper" << endl;
 
@@ -274,7 +294,7 @@ namespace impl {
         zip_req.set_num_requests(slot_estimate_);
 
         Message resp;
-        cout << "req seq: " << zip_req.seq_or_count << endl;
+        cout  << "[proxy " << id() << "] req seq: " << zip_req.seq_or_count << endl;
 
         int sock = connection_pool_.get_connection(config_.zipper);
         if (sock < 0) {
@@ -293,7 +313,7 @@ namespace impl {
         mu_.lock();
 
         // don't send anything out if you don't have any sequence numbers
-        if (next_send_ == 0) {
+        if (next_send_ == 0 || sequences_.empty()) {
             cout << "no sequences..." << endl;
             mu_.unlock();
             return;
@@ -301,29 +321,11 @@ namespace impl {
 
         // build message
         Message msg;
-        msg.type = APPEND;
         msg.shard_id = shard();
         msg.sender_id = id();
         msg.set_sequence_number(sequences_.front());    // seq number
 
-        // add commands to batch
-        CommandBatch batch;
-
-        if (!batch_values_.empty()) {
-            // commands to send
-            for (const auto& cmd : batch_values_) {
-                batch.add_command(cmd);
-            }
-        } else {
-            // no commands to send (send skip)
-            msg.type = SKIP;
-        }
-
-        deque<int> clients_to_respond = client_sockets_;
-
         // clear pending commands/client sockets (they have now been handled)
-        batch_values_.clear();
-        client_sockets_.clear();
         sequences_.pop_front(); // removed used sequence number
         timeouts_.pop_front();
 
@@ -332,6 +334,44 @@ namespace impl {
 
         mu_.unlock();
 
+        // add commands to batch
+        CommandBatch batch;
+        set<int> participating_clients;
+        const size_t MAX_BATCH_BYTES = 60000;
+        size_t current_batch_size = 0;
+
+        {
+            lock_guard<mutex> lock(buffers_mu_);
+            bool pulled = true;
+            while (pulled && current_batch_size < MAX_BATCH_BYTES) {
+                pulled = false;
+                // round-robin: pop one request from each client buffer
+                for (auto& [socket, buffer] : client_buffers_) {
+                    if (current_batch_size >= MAX_BATCH_BYTES) break;
+
+                    PendingRequest pr;
+                    if (buffer.peek(pr)) {
+                        if (current_batch_size + pr.cmd.size() <= MAX_BATCH_BYTES) {
+                            buffer.pop(pr);
+                            batch.add_command(pr.cmd);
+                            participating_clients.insert(pr.client_socket);
+                            current_batch_size += pr.cmd.size();
+                            pulled = true;
+                        }
+                    }
+                }
+            }
+        }
+
+
+        if (participating_clients.empty()) {
+            msg.type = SKIP;
+            msg.data = Command();
+        } else {
+            msg.type = APPEND;
+            msg.data = batch.serialize();
+        }
+
         msg.data = batch.serialize();
 
         // send out batch
@@ -339,16 +379,15 @@ namespace impl {
 
         // respond to clients
         Message resp;
-        resp.type = SUCCESS;
+        resp.type = success ? SUCCESS : FAILURE;
 
         if (!success) {
             resp.type = FAILURE;
             cout << "[proxy " << id() << "] failed to replicate on quroum" << endl;
         }
 
-        for (int client : clients_to_respond) {
+        for (int client : participating_clients) {
             NetworkUtils::send_message(client, resp);
-            //close(client);
         }
     }
 }}

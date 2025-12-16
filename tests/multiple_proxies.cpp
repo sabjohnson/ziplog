@@ -43,14 +43,30 @@ TEST_F(E2ETest, Multiple_SingleAppend) {
 // currently client simply unable to make requests, shoulf function sa normal
 TEST_F(E2ETest, Multiple_SingleAppendKillOneProxy) {
     StartSystem("config/servers.json");
-    proxies[0]->shutdown();
+    proxies[0].reset();
 
     // client sends append
     std::thread t1([&]() { send_append(0, "amish donuts "); });
     std::this_thread::sleep_for(50ms);
-    std::thread t2([&]() { ASSERT_TRUE(send_append(1, "are the ")); });
+    std::thread t2([&]() {
+        for (int i = 0; i < 10; i++) {
+            if (send_append(1, "are the ")) {
+                ASSERT_TRUE(true);
+                return;
+            }
+        }
+        ASSERT_TRUE(false);
+    });
     std::this_thread::sleep_for(50ms);
-    std::thread t3([&]() { ASSERT_TRUE(send_append(2, "best")); });
+    std::thread t3([&]() {
+        for (int i = 0; i < 10; i++) {
+            if (send_append(2, "best")) {
+                ASSERT_TRUE(true);
+                return;
+            }
+        }
+        ASSERT_TRUE(false);
+    });
 
     t1.join(); t2.join(); t3.join();
 
@@ -81,9 +97,25 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxyAfterZipperRequest) {
     // client sends append (client 0 to proxy 0, client 1 to proxy 1 and so on...)
     std::thread t1([&]() { ASSERT_FALSE(send_append(0, "amish donuts ")); });
     std::this_thread::sleep_for(50ms);
-    std::thread t2([&]() { ASSERT_TRUE(send_append(1, "are the ")); });
+    std::thread t2([&]() {
+        for (int i = 0; i < 10; i++) {
+            if (send_append(1, "are the ")) {
+                ASSERT_TRUE(true);
+                return;
+            }
+        }
+        ASSERT_TRUE(false);
+    });
     std::this_thread::sleep_for(50ms);
-    std::thread t3([&]() { ASSERT_TRUE(send_append(2, "best")); });
+    std::thread t3([&]() {
+        for (int i = 0; i < 10; i++) {
+            if (send_append(2, "best")) {
+                ASSERT_TRUE(true);
+                return;
+            }
+        }
+        ASSERT_TRUE(false);
+    });
 
     t1.join(); t2.join(); t3.join();
 

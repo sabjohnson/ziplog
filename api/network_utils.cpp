@@ -112,7 +112,7 @@ namespace api {
         // attempt to deserialize message
         auto opt_msg = Message::deserialize(buffer);
         if (!opt_msg) {
-            std::cerr << "Failed to deserialize message" << std::endl;
+            std::cerr << "Failed to deserialize message 1" << std::endl;
             return false;
         }
 
