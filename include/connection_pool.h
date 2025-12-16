@@ -8,38 +8,27 @@ namespace impl {
 
     class ConnectionPool {
     private:
-        struct SocketState {
-            int socket;
-            unique_ptr<mutex> mu;   // one mutex per socket
-
-            SocketState(int s) : socket(s), mu(make_unique<mutex>()) {}
-        };
-        unordered_map<Address, shared_ptr<SocketState>> active_connections_;  // address struct -> socket
+        unordered_map<Address, int> active_connections_;  // address struct -> socket
         mutex mu_;
 
     public:
         int get_connection(const Address& addr) {
             lock_guard<mutex> lock(mu_);
 
-            if (active_connections_.find(addr) != active_connections_.end()) {
-                int sock = active_connections_[addr];  // attempt to reuse existing
+            auto it = active_connections_.find(addr);
+            if (it != active_connections_.end()) {
+                int sock = it->second;  // return sock
 
                 if (socket_alive(sock)) {
                     return sock;
-                } else {
-                    close(sock);
-                    active_connections_.erase(addr);
                 }
+                close(sock);
+                active_connections_.erase(it);
             }
 
             // create new persistent connection
-            int sock = NetworkUtils::create_connector_socket();
+            int sock = NetworkUtils::connect_to_address_persistent(addr.ip, addr.port);
             if (sock< 0) return -1;
-
-            if (!NetworkUtils::connect_to_address(sock, addr.ip, addr.port)) {
-                close(sock);
-                return -1;
-            }
 
             active_connections_[addr] = sock;
             return sock;

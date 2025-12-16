@@ -20,6 +20,21 @@ namespace impl {
         request_count_ = 0;
         next_send_ = 0;
 
+        // Initialize server worker threads
+         for (size_t i = 0; i < config_.servers.size(); i++) {
+            // create object
+            auto worker = std::make_unique<ServerWorker>();
+
+            // insert into map
+            {
+                std::lock_guard<std::mutex> lock(server_workers_mu_);
+                server_workers_[i] = std::move(worker);
+            }
+
+            // create thread
+            server_workers_[i]->worker_thread = std::make_unique<thread>(&Proxy::server_worker_loop, this, i);
+        }
+
         start_listening();
         start_epochs();
     }
@@ -29,6 +44,21 @@ namespace impl {
     {
         if (!registered) {
             registered_ = registered;
+        }
+
+        // Initialize server worker threads
+         for (size_t i = 0; i < config_.servers.size(); i++) {
+            // create object
+            auto worker = std::make_unique<ServerWorker>();
+
+            // insert into map
+            {
+                std::lock_guard<std::mutex> lock(server_workers_mu_);
+                server_workers_[i] = std::move(worker);
+            }
+
+            // create thread
+            server_workers_[i]->worker_thread = std::make_unique<thread>(&Proxy::server_worker_loop, this, i);
         }
 
         attempt_join(true);
@@ -41,24 +71,33 @@ namespace impl {
 
     Proxy::~Proxy() {
         cout << "Proxy " << id() << " shutting down" << endl;
+        // shutdown server workers
+        {
+            std::lock_guard<std::mutex> lock(server_workers_mu_);
+            for (auto& [idx, worker] : server_workers_) {
+                {
+                    lock_guard<mutex> lock(worker->mu);
+                    worker->shutdown = true;
+                }
+                worker->cv.notify_one();
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(server_workers_mu_);
+            for (auto& [idx, worker] : server_workers_) {
+                if (worker->worker_thread && worker->worker_thread->joinable()) {
+                    worker->worker_thread->join();
+                }
+            }
+        }
+
         epoch_running_ = false;
         if (epoch_thread_.joinable()) {
             epoch_thread_.join();
         }
-/*
-        {
-            lock_guard<mutex> lock(mu_);
 
-            Message failure;
-            failure.type = FAILURE;
-            for (int client : client_sockets_) {
-                cout << "[proxy " << id() << "] sending failure to client on shutdown" << endl;
-                NetworkUtils::send_message(client, failure);
-                //close(client);
-            }
-        }
-*/
-        connection_pool_.close_all();
+        zipper_connection_pool_.close_all();
         shutdown();
 
     }
@@ -109,7 +148,7 @@ namespace impl {
                 cout << "[proxy " << id() << "] Successfully pushed to buffer. Buffer size: " << client_buffers_[client_socket].size() << endl;
 
                 {
-                    lock_guard<mutex> lock(mu_);
+                    lock_guard<mutex> lock(epoch_mu_);
                     request_count_++;
                 }
             }
@@ -142,7 +181,7 @@ namespace impl {
 /*
     void Proxy::handle_append(int client_socket, const Command& data) {
         // obtain lock
-        lock_guard<mutex> lock(mu_);
+        lock_guard<mutex> lock(epoch_mu_);
 
         // take notes of command
         batch_values_.push_back(data);
@@ -156,8 +195,41 @@ namespace impl {
     }
 */
 
-    // attempt to replicate on f + 1 storage servers
     bool Proxy::replicate_on_quorum(Message& msg) {
+        cout << "replicate on quorum ------------------------------------" << endl;
+        ack_count_ = 0;
+
+        {
+            std::lock_guard<std::mutex> lock(server_workers_mu_);
+            for (auto& [idx, worker] : server_workers_) {
+                worker->ack_received = false;
+            }
+
+            for (auto& [idx, worker] : server_workers_) {
+                {
+                    lock_guard<mutex> lock(worker->mu);
+                    worker->pending_msg = msg;
+                    worker->has_work = true;
+                }
+                worker->cv.notify_one();
+            }
+        }
+
+        // wait for f + 1
+        {
+            std::unique_lock<mutex> lock(ack_mu_);
+            ack_cv_.wait(lock, [this]() {
+                cout << "replicate = " << (ack_count_ >= static_cast<int>(quorum())) << endl;
+                return ack_count_ >= static_cast<int>(quorum());
+            });
+        }
+
+        return true;
+    }
+
+/*
+    // attempt to replicate on f + 1 storage servers
+    bool Proxy::replicate_on_quorum1(Message& msg) {
         vector<future<bool>> futures;
 
         for (size_t i = 0; i < num_servers(); i++) {
@@ -195,13 +267,13 @@ namespace impl {
         cout << "successful sends = " << successful_sends << " vs " << " quorum = " << quorum() << endl;
         return successful_sends >= quorum();
     }
-
+*/
     void Proxy::handle_zip_response(Message& msg) {
         // validate zip response
         if (msg.shard_id != shard()) return;
 
         // obtain lock
-        lock_guard<mutex> lock(mu_);
+        lock_guard<mutex> lock(epoch_mu_);
 
         cout << "[proxy "  << id() << "] got " << msg.get_num_requests() << " slots from the zipper" << endl;
 
@@ -223,7 +295,7 @@ namespace impl {
         string addr_info = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr_info.begin(), addr_info.end());
 
-        int sock = connection_pool_.get_connection(config_.zipper);
+        int sock = zipper_connection_pool_.get_connection(config_.zipper);
         if (sock < 0) return;
         NetworkUtils::send_message(sock, req);
     }
@@ -263,7 +335,7 @@ namespace impl {
 
     void Proxy::update_slot_estimate() {
         // obtain lock
-        mu_.lock();
+        epoch_mu_.lock();
 
         // update request history and calculate estimate for the appropriate number of epochs (i.e., min(total epochs, MAX_EPOCH_HISTORY))
         estimate_history_.push_back(request_count_);
@@ -284,7 +356,7 @@ namespace impl {
         // reset trackers
         request_count_ = 0;
 
-        mu_.unlock();
+        epoch_mu_.unlock();
 
         // send to zipper
         Message zip_req;
@@ -296,7 +368,7 @@ namespace impl {
         Message resp;
         cout  << "[proxy " << id() << "] req seq: " << zip_req.seq_or_count << endl;
 
-        int sock = connection_pool_.get_connection(config_.zipper);
+        int sock = zipper_connection_pool_.get_connection(config_.zipper);
         if (sock < 0) {
             cout << "could not send to zipper" << endl;
             return;
@@ -310,12 +382,12 @@ namespace impl {
 
     void Proxy::send_out_batch() {
         // obtain lock
-        mu_.lock();
+        epoch_mu_.lock();
 
         // don't send anything out if you don't have any sequence numbers
         if (next_send_ == 0 || sequences_.empty()) {
             cout << "no sequences..." << endl;
-            mu_.unlock();
+            epoch_mu_.unlock();
             return;
         }
 
@@ -332,7 +404,7 @@ namespace impl {
         if (timeouts_.size() > 0) next_send_ = timeouts_.front();
         else next_send_ = 0;
 
-        mu_.unlock();
+        epoch_mu_.unlock();
 
         // add commands to batch
         CommandBatch batch;

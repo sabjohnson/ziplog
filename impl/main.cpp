@@ -48,7 +48,8 @@ int main(int argc, char* argv[]) {
                 std::cerr << "Client mode requires an proxy ID to contact" << std::endl;
                 return ERROR;
             }
-            Client client(config, *id);
+            Address proxy_addr = config.proxies[*id];  // get the proxy address using the id
+            Client client(proxy_addr);
 
             // read from stdin and send appends
             std::cout << "Type string value to send APPENDs and hit Enter. Enter 'quit' to shutdown..." << std::endl;

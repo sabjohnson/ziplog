@@ -12,6 +12,74 @@ namespace impl {
 
    class Proxy : public BaseNode<ProxyConfig> {
        private:
+           struct ServerWorker {
+//               thread worker_thread;
+               std::unique_ptr<thread> worker_thread;
+               int socket;
+               mutex mu;
+               condition_variable cv;
+
+               optional<Message> pending_msg;
+               bool has_work = false;
+               bool shutdown = false;
+
+               // reslut signaling
+               atomic<bool> ack_received{false};
+           };
+
+           std::unordered_map<int, std::unique_ptr<ServerWorker>> server_workers_;
+           mutex server_workers_mu_;
+
+           // coordination for f+1 ACKs
+           mutex ack_mu_;
+           condition_variable ack_cv_;
+           atomic<int> ack_count_{0};
+
+           void server_worker_loop(int server_idx) {
+                Address server = config_.servers[server_idx];
+                ServerWorker& worker = *server_workers_[server_idx];
+
+                // create persistent connection
+                worker.socket = NetworkUtils::connect_to_address_persistent(server.ip, server.port);
+                if (worker.socket < 0) {
+                    return;
+                }
+
+                while (true) {
+                    optional<Message> msg;
+
+                    // wait for signal (has work)
+                    {
+                        std::unique_lock<mutex> lock(worker.mu);
+                        worker.cv.wait(lock, [&]() {
+                            return worker.has_work || worker.shutdown;
+                        });
+
+                        if (worker.shutdown) break;
+
+                        msg = worker.pending_msg;
+                        worker.has_work = false;
+                    }
+
+                    // send message to replica
+                    bool success = NetworkUtils::send_message(worker.socket, *msg);
+                    if (success) {
+                        Message ack;
+                        success = NetworkUtils::recv_message(worker.socket, ack);
+                    }
+                    worker.ack_received = success;
+
+                    // signal to epoch thread that we got an ack
+                    {
+                        lock_guard<mutex> lock(ack_mu_);
+                        if (success) ack_count_++;
+                        ack_cv_.notify_one();
+                    }
+                }
+                close(worker.socket);
+           }
+
+           // originla vars ------------------------------------------------------
            atomic<bool> registered_ = true;
 
            // slot allocation
@@ -39,12 +107,12 @@ namespace impl {
            Timestamp epoch_startup_;
 
            // threading
-           mutex mu_;
+           mutex epoch_mu_;
            atomic<bool> epoch_running_;
            thread epoch_thread_;
 
-           // connection pool optimization
-           ConnectionPool connection_pool_;
+           // connection pool optimization (to just zipper)
+           ConnectionPool zipper_connection_pool_;
 
            void start_epochs() {
                 epoch_thread_ = thread(&Proxy::epoch_timer, this);
