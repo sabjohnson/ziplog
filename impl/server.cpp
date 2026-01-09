@@ -12,6 +12,22 @@ namespace impl {
     {
         // init lag
         lag_ = config_.epoch_duration_ms;
+
+        // init subscriber worker threads
+        for (size_t i = 0; i < config_.subscribers.size(); i++) {
+            auto worker = std::make_unique<SubscriberWorker>();
+
+            // insert into map
+            {
+                std::lock_guard<std::mutex> lock(subscriber_workers_mu_);
+                subscriber_workers_[i] = std::move(worker);
+            }
+
+            // create thread
+            subscriber_workers_[i]->worker_thread = std::make_unique<thread>(
+                &Server::subscriber_worker_loop, this, i
+            );
+        }
         
         // set value of members (we already know ip addr is in our valid range based on parsed config)
         start_listening();
@@ -403,6 +419,28 @@ namespace impl {
 
     Server::~Server() {
         running_ = false;
+
+        // shutdown subscriber worker threads
+        {
+            std::lock_guard<std::mutex> lock(subscriber_workers_mu_);
+            for (auto& [idx, worker] : subscriber_workers_) {
+                {
+                    lock_guard<mutex> lock(worker->mu);
+                    worker->shutdown = true;
+                }
+                worker->cv.notify_one();
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(subscriber_workers_mu_);
+            for (auto& [idx, worker] : subscriber_workers_) {
+                if (worker->worker_thread && worker->worker_thread->joinable()) {
+                    worker->worker_thread->join();
+                }
+            }
+        }
+
         if (failure_detector_thread_.joinable()) {
             failure_detector_thread_.join();
         }

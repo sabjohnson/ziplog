@@ -53,7 +53,7 @@ download_json:
 
 # Clean - just remove obj directory and executable
 clean:
-	rm -rf $(OBJ_DIR) $(TARGET)
+	rm -rf $(OBJ_DIR) $(TARGET) $(TEST_RUNNER)
 
 # Clean everything including downloaded dependencies
 external_clean: clean
@@ -73,6 +73,6 @@ test_build: $(TEST_OBJECTS) $(TEST_OBJS) | check_json
 
 # Build and run test target
 test: test_build
-	./test_runner
+	./$(TEST_RUNNER)
 
 .PHONY: clean external_clean test test_build check_json download_json

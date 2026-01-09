@@ -46,7 +46,14 @@ TEST_F(E2ETest, Multiple_SingleAppendKillOneProxy) {
     proxies[0].reset();
 
     // client sends append
-    std::thread t1([&]() { send_append(0, "amish donuts "); });
+    std::thread t1([&]() {
+
+        if (send_append(0, "amish donuts ")) {
+            std::cout << "wabi" << std::endl;
+        } else {
+            std::cout << "sabi" << std::endl;
+        }
+    });
     std::this_thread::sleep_for(50ms);
     std::thread t2([&]() {
         for (int i = 0; i < 10; i++) {

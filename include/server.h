@@ -1,9 +1,11 @@
 #pragma once
 #include "base_node.h"
 #include "connection_pool.h"
+#include <condition_variable>
 #include <deque>
 
 using namespace ziplog::api;
+using std::condition_variable;
 using std::deque;
 
 namespace ziplog {
@@ -12,6 +14,71 @@ namespace impl {
     // Storage servers in the paper
     class Server : public BaseNode<ServerConfig> {
     private:
+        struct SubscriberWorker {
+           std::unique_ptr<thread> worker_thread;
+           int socket;
+           mutex mu;
+           condition_variable cv;
+
+           optional<Message> pending_msg;
+           bool has_work = false;
+           bool shutdown = false;
+
+           // result signaling
+           atomic<bool> ack_received{false};
+       };
+
+       std::unordered_map<int, std::unique_ptr<SubscriberWorker>> subscriber_workers_;
+       mutex subscriber_workers_mu_;
+
+       mutex sub_ack_mu_;
+       condition_variable sub_ack_cv_;
+       atomic<int> sub_ack_count_{0};
+
+       void subscriber_worker_loop(int subscriber_idx) {
+            Address subscriber = config_.subscribers[subscriber_idx];
+            SubscriberWorker& worker = *subscriber_workers_[subscriber_idx];
+
+            // create persistent connection
+            worker.socket = NetworkUtils::connect_to_address_persistent(subscriber.ip, subscriber.port);
+            if (worker.socket < 0) {
+                return;
+            }
+
+            while (true) {
+                optional<Message> msg;
+
+                {
+                    std::unique_lock<mutex> lock(worker.mu);
+                    worker.cv.wait(lock, [&]() {
+                        return worker.has_work || worker.shutdown;
+                    });
+
+                    if (worker.shutdown) break;
+
+                    msg = worker.pending_msg;
+                    worker.has_work = false;
+                }
+
+                // send message to subscriber
+                bool success = NetworkUtils::send_message(worker.socket, *msg);
+                if (success) {
+                    Message ack;
+                    success = NetworkUtils::recv_message(worker.socket, ack);
+                }
+                worker.ack_received = success;
+
+                // signal completion
+                {
+                    lock_guard<mutex> lock(sub_ack_mu_);
+                    if (success) sub_ack_count_++;
+                    sub_ack_cv_.notify_one();
+                }
+            }
+            close(worker.socket);
+       }
+
+        // original member vars -----------------------------------------------
         unordered_map<NodeId, deque<Message>> proxy_messages_;
 
         // threading safety
