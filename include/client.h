@@ -23,5 +23,7 @@ namespace impl {
         }
 
         bool bulk_append(const vector<Command>& commands);
+
+        void update_proxy(Address new_proxy);
     };
 }}

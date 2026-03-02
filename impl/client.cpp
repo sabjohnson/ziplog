@@ -22,17 +22,21 @@ namespace impl {
 
             if (!NetworkUtils::send_message(sock, req)) {
                 connection_pool_.close_connection(proxy_);
+                cout << "client::append() failed to send message" << endl;
                 return false;
             }
 
             Message resp;
             if (!NetworkUtils::recv_message(sock, resp)) {
                 connection_pool_.close_connection(proxy_);
+                cout << "client::append() failed to recv" << endl;
                 return false;
             }
 
+            cout << "client::append() == success?" << endl;
             return resp.type == SUCCESS;
         }
+        cout << "client::append() failed to connect" << endl;
         return false;
     }
 
@@ -43,5 +47,10 @@ namespace impl {
         }
         cout << "Sent " << success << "/" << commands.size() << " commands" << endl;
         return success == commands.size();
+    }
+
+    void Client::update_proxy(Address new_proxy) {
+        connection_pool_.close_all();
+        proxy_ = new_proxy;
     }
 }}

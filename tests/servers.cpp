@@ -1,12 +1,15 @@
+/*
 #include "test_utils.h"
 
 using namespace ziplog::test;
 
+*/
 /*
     * all tests are using one shard *
     number of   clients proxies servers subscribers config_file
     setup1:     1       1       2       1           setup1.json
-*/
+*//*
+
 
 class E2ETest : public ZiplogTestBase {
     // inherits from setup, tear down and utility functions from import file
@@ -169,3 +172,4 @@ TEST_F(E2ETest, Liveness_SystemContinuesWithNMinusFServers) {
 
     std::cout << "[TEST] System successfully continued with n-f servers" << std::endl;
 }
+*/

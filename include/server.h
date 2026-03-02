@@ -3,10 +3,12 @@
 #include "connection_pool.h"
 #include <condition_variable>
 #include <deque>
+#include <queue>
 
 using namespace ziplog::api;
 using std::condition_variable;
 using std::deque;
+using std::queue;
 
 namespace ziplog {
 namespace impl {
@@ -14,26 +16,29 @@ namespace impl {
     // Storage servers in the paper
     class Server : public BaseNode<ServerConfig> {
     private:
+       struct ReplicationState {
+            mutex mu;
+            condition_variable cv;
+            atomic<int> ack_count{0};
+            SequenceNumber seq;
+       };
+
+       struct WorkItem {
+            Message msg;
+            std::shared_ptr<ReplicationState> state;
+       };
+
         struct SubscriberWorker {
-           std::unique_ptr<thread> worker_thread;
+           thread worker_thread;
            int socket;
-           mutex mu;
+           queue<WorkItem> pending_queue;
+           mutex queue_mu;
            condition_variable cv;
-
-           optional<Message> pending_msg;
-           bool has_work = false;
-           bool shutdown = false;
-
-           // result signaling
-           atomic<bool> ack_received{false};
+           atomic<bool> shutdown{false};
        };
 
        std::unordered_map<int, std::unique_ptr<SubscriberWorker>> subscriber_workers_;
        mutex subscriber_workers_mu_;
-
-       mutex sub_ack_mu_;
-       condition_variable sub_ack_cv_;
-       atomic<int> sub_ack_count_{0};
 
        void subscriber_worker_loop(int subscriber_idx) {
             Address subscriber = config_.subscribers[subscriber_idx];
@@ -42,37 +47,44 @@ namespace impl {
             // create persistent connection
             worker.socket = NetworkUtils::connect_to_address_persistent(subscriber.ip, subscriber.port);
             if (worker.socket < 0) {
-                return;
+                worker.shutdown = true;
             }
 
-            while (true) {
-                optional<Message> msg;
+            while (!worker.shutdown) {
+                WorkItem item;
 
+                // wait until the queue has a message or the worker is being shutdown
                 {
-                    std::unique_lock<mutex> lock(worker.mu);
+                    std::unique_lock<mutex> lock(worker.queue_mu);
                     worker.cv.wait(lock, [&]() {
-                        return worker.has_work || worker.shutdown;
+                        return !worker.pending_queue.empty() || worker.shutdown;
                     });
 
                     if (worker.shutdown) break;
 
-                    msg = worker.pending_msg;
-                    worker.has_work = false;
+                    // pop from queue
+                    item = worker.pending_queue.front();
+                    worker.pending_queue.pop();
                 }
 
-                // send message to subscriber
-                bool success = NetworkUtils::send_message(worker.socket, *msg);
+                // attempt to send message to subscriber and wait for ack (blocking)
+                cout << "server sending a message" << endl;
+                bool success = NetworkUtils::send_message(worker.socket, item.msg);
                 if (success) {
                     Message ack;
                     success = NetworkUtils::recv_message(worker.socket, ack);
                 }
-                worker.ack_received = success;
+
+                if (!success) {
+                    worker.shutdown = true;
+                    continue;
+                }
 
                 // signal completion
-                {
-                    lock_guard<mutex> lock(sub_ack_mu_);
-                    if (success) sub_ack_count_++;
-                    sub_ack_cv_.notify_one();
+                if (success && item.state) {
+                    lock_guard<mutex> lock(item.state->mu);
+                    item.state->ack_count++;
+                    item.state->cv.notify_one();
                 }
             }
             close(worker.socket);

@@ -58,6 +58,7 @@ namespace api {
 
     // serializes messages, send size header and bytes of struct over a socket
     bool NetworkUtils::send_message(int socket, const Message& msg) {
+        //cout << "send_message() called" << endl;
         // attempt to serialize message
         auto serialized = msg.serialize();
         if (serialized.empty()) {
@@ -68,24 +69,30 @@ namespace api {
         // send size of serialized message
         uint16_t msg_len = htons(static_cast<uint16_t>(serialized.size()));
         if (!send_bytes(socket, &msg_len, 2)) {
+            std::cerr << "couldnt send size on connection" << std::endl;
             return false;
         }
+        cout << "send_message() sending " << msg_len << " bytes on socket " << socket << endl;
+        //cout << "send_bytes() exitting" << endl;
         // send message
         return send_bytes(socket, serialized.data(), serialized.size());
     }
 
     // sending specified number of bytes from a pointer to a socket
     bool NetworkUtils::send_bytes(int socket, const void* data, size_t len) {
+        //cout << "send_bytes() called" << endl;
         const uint8_t* ptr = static_cast<const uint8_t*>(data);
         size_t sent = 0;
 
         while (sent < len) {
             ssize_t result = send(socket, ptr + sent, len - sent, MSG_NOSIGNAL);
             if (result <= 0) {
+                cout << "sending failed on socket. return value = " << result << endl;
                 return false;
             }
             sent += result;
         }
+        //cout << "send_bytes() returning true" << endl;
         return true;
     }
 
@@ -94,18 +101,21 @@ namespace api {
         // read 2-byte length prefix
         uint16_t msg_len;
         if (!recv_bytes(socket, &msg_len, 2)) {
+            cout << "recv_message() no header sent" << msg_len<< endl;
             return false;
         }
+        cout << "recv_message() reading in " << msg_len << " bytes on socket " << socket << endl;
 
         msg_len = ntohs(msg_len);
         if (msg_len > MAX_MESSAGE_SIZE) {
-            std::cerr << "Rejecting recv of oversized message" << std::endl;
+            std::cerr << "recv_message() rejecting recv of oversized message" << std::endl;
             return false;
         }
 
         // read message data
         vector<uint8_t> buffer(msg_len);
         if (!recv_bytes(socket, buffer.data(), msg_len)) {
+            std::cerr << "recv_message() revc_bytes() failed" << std::endl;
             return false;
         }
 

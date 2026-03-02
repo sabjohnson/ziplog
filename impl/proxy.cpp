@@ -32,7 +32,7 @@ namespace impl {
             }
 
             // create thread
-            server_workers_[i]->worker_thread = std::make_unique<thread>(&Proxy::server_worker_loop, this, i);
+            server_workers_[i]->worker_thread = thread(&Proxy::server_worker_loop, this, i);
         }
 
         start_listening();
@@ -58,15 +58,11 @@ namespace impl {
             }
 
             // create thread
-            server_workers_[i]->worker_thread = std::make_unique<thread>(&Proxy::server_worker_loop, this, i);
+            server_workers_[i]->worker_thread = thread(&Proxy::server_worker_loop, this, i);
         }
 
         attempt_join(true);
         start_listening();
-    }
-
-    void Proxy::shutdown() {
-        BaseNode::shutdown();
     }
 
     Proxy::~Proxy() {
@@ -76,7 +72,7 @@ namespace impl {
             std::lock_guard<std::mutex> lock(server_workers_mu_);
             for (auto& [idx, worker] : server_workers_) {
                 {
-                    lock_guard<mutex> lock(worker->mu);
+                    lock_guard<mutex> lock(worker->queue_mu);
                     worker->shutdown = true;
                 }
                 worker->cv.notify_one();
@@ -86,8 +82,8 @@ namespace impl {
         {
             std::lock_guard<std::mutex> lock(server_workers_mu_);
             for (auto& [idx, worker] : server_workers_) {
-                if (worker->worker_thread && worker->worker_thread->joinable()) {
-                    worker->worker_thread->join();
+                if (worker->worker_thread.joinable()) {
+                    worker->worker_thread.join();
                 }
             }
         }
@@ -98,8 +94,7 @@ namespace impl {
         }
 
         zipper_connection_pool_.close_all();
-        shutdown();
-
+        //shutdown();
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -107,8 +102,6 @@ namespace impl {
      ----------------------------------------------------------------------------------------------------------------------- */
 
     void Proxy::handle_connection(int client_socket) {
-        cout << "[proxy " << id() << "] New client connected on socket " << client_socket << endl;
-
         while (running() && registered_) {
             // read from and respond to valid request
             Message req;
@@ -116,8 +109,6 @@ namespace impl {
                 //close(client_socket);
                 break;
             }
-
-            cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
 
             // build and send response
             Message resp;
@@ -131,7 +122,8 @@ namespace impl {
                     //close(client_socket);
                     continue;
                 }
-
+                cout << "[proxy " << id() << "] ------------------------------------- RECV CLIENT REQ" << endl;
+                cout << "[proxy " << id() << "] New client connected on socket " << client_socket << endl;
                 // create pending request
                 PendingRequest pr(req.data, client_socket);
 
@@ -196,20 +188,18 @@ namespace impl {
 */
 
     bool Proxy::replicate_on_quorum(Message& msg) {
-        cout << "replicate on quorum ------------------------------------" << endl;
-        ack_count_ = 0;
+        cout << "replicate on quorum ------------------------------------" << msg.type << endl;
+        auto state = std::make_shared<ReplicationState>();
+        state->seq = msg.get_sequence_number();
 
+        // push message to queues of server workers
         {
             std::lock_guard<std::mutex> lock(server_workers_mu_);
-            for (auto& [idx, worker] : server_workers_) {
-                worker->ack_received = false;
-            }
-
+            cout << "[proxy " << id() << "] replicate_on_quorum: server_workers_.size() = " << server_workers_.size() << endl;
             for (auto& [idx, worker] : server_workers_) {
                 {
-                    lock_guard<mutex> lock(worker->mu);
-                    worker->pending_msg = msg;
-                    worker->has_work = true;
+                    lock_guard<mutex> lock(worker->queue_mu);
+                    worker->pending_queue.push({msg, state});
                 }
                 worker->cv.notify_one();
             }
@@ -217,10 +207,10 @@ namespace impl {
 
         // wait for f + 1
         {
-            std::unique_lock<mutex> lock(ack_mu_);
-            ack_cv_.wait(lock, [this]() {
-                cout << "replicate = " << (ack_count_ >= static_cast<int>(quorum())) << endl;
-                return ack_count_ >= static_cast<int>(quorum());
+            std::unique_lock<mutex> lock(state->mu);
+            state->cv.wait(lock, [&]() {
+                cout << "replicate = " << (state->ack_count >= static_cast<int>(quorum())) << endl;
+                return state->ack_count >= static_cast<int>(quorum());
             });
         }
 
@@ -456,8 +446,11 @@ namespace impl {
         if (!success) {
             resp.type = FAILURE;
             cout << "[proxy " << id() << "] failed to replicate on quroum" << endl;
+        } else {
+            cout << "[proxy " << id() << "] success in replicating on quroum" << endl;
         }
 
+        cout << "[proxy " << id() << "] participating clients size = " << participating_clients.size() << endl;
         for (int client : participating_clients) {
             NetworkUtils::send_message(client, resp);
         }

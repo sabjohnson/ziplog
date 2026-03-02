@@ -109,4 +109,15 @@ namespace api {
             ordering_values = sequences;
         }
     };
+
+    inline Message build_message(MessageType type = 0, ShardId shard_id = 0, NodeId sender_id = 0, SequenceNumber number = 0, Command data = {}, vector<SequenceNumber> values = {}) {
+        Message message;
+        message.type = type;
+        message.shard_id = shard_id;
+        message.sender_id = sender_id;
+        message.seq_or_count = number;
+        message.data = data;
+        message.ordering_values = values;
+        return message;
+    }
 }}

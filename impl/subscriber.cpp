@@ -111,6 +111,7 @@ namespace impl {
             next_seq_++;
         }
         //print_log();
+        log_cv_.notify_all();
     }
 
     void Subscriber::print_log() {
@@ -166,7 +167,7 @@ namespace impl {
     
     Subscriber::~Subscriber() {
         connection_pool_.close_all();
-        shutdown();
+        //shutdown();
         print_expanded_log();
     }
 }}

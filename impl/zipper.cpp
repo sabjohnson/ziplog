@@ -255,7 +255,7 @@ namespace impl {
         lock_guard<mutex> lock(mu_);
 
         if (req.get_num_requests()) {
-            cout << "Received request from proxy " << req.sender_id << " with " << req.get_num_requests() << " timestamp(s)" << endl;
+            cout << "[zipper] Received request from proxy " << req.sender_id << " with " << req.get_num_requests() << " timestamp(s)" << endl;
         }
 
         // take note of number fo requests
@@ -523,6 +523,7 @@ namespace impl {
 
         int sock = connection_pool_.get_connection(proxy);
         if (sock >= 0) {
+            cout << "zipper sending to timeouts to proxy " << endl;
             if (!NetworkUtils::send_message(sock, resp)) {
                 connection_pool_.close_connection(proxy);
             }
@@ -530,6 +531,7 @@ namespace impl {
 
         // share sequence numbers to all srevers too
         for (Address server : config_.servers) {
+            cout << "zipper sending to timeouts to server " << server.port << endl;
             int server_sock = connection_pool_.get_connection(server);
             if (server_sock < 0) continue;
             NetworkUtils::send_message(server_sock, resp);

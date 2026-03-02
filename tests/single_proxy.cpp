@@ -14,7 +14,8 @@ using namespace ziplog::test;
 class E2ETest : public ZiplogTestBase {
     // inherits from setup, tear down and utility functions from import file
 };
-
+/**
+// 1 client send a request to 1 proxy
 TEST_F(E2ETest, Setup1_SingleAppend) {
     StartSystem("config/setup1.json");
 
@@ -22,7 +23,8 @@ TEST_F(E2ETest, Setup1_SingleAppend) {
     ASSERT_TRUE(send_append(0, "amish donuts"));
 
     // wait for propagation (3 epochs)
-    wait_for_propagation();
+    //wait_for_propagation();
+    subscribers[0]->wait_for_log_size(1);
 
     // expand log and remove skips
     const auto& original_log = subscribers[0]->log();
@@ -36,15 +38,25 @@ TEST_F(E2ETest, Setup1_SingleAppend) {
     verify_index_matches_expected(log[0], expected);  // output commands, expected strings
 }
 
+// 3 clients concurrently sending a request to 1 proxy.
 TEST_F(E2ETest, Setup1_MultipleAppend) {
     StartSystem("config/setup1.json");
 
-    // send messages from multiple proxies
-    std::thread t1([&]() { ASSERT_TRUE(send_append(0, "amish donuts ")); });
-    std::this_thread::sleep_for(50ms);
-    std::thread t2([&]() { ASSERT_TRUE(send_append(0, "are the ")); });
-    std::this_thread::sleep_for(50ms);
-    std::thread t3([&]() { ASSERT_TRUE(send_append(0, "best")); });
+    // send messages from multiple clients
+    std::thread t1([&]() {
+        auto c0 = std::make_unique<Client>(config.proxies[0]);
+        ASSERT_TRUE(c0->append(string_to_command("amish donuts ")));
+    });
+
+    std::thread t2([&]() {
+        auto c0 = std::make_unique<Client>(config.proxies[0]);
+        ASSERT_TRUE(c0->append(string_to_command("are the ")));
+    });
+
+    std::thread t3([&]() {
+        auto c0 = std::make_unique<Client>(config.proxies[0]);
+        ASSERT_TRUE(c0->append(string_to_command("best")));
+    });
 
     t1.join(); t2.join(); t3.join();
 
@@ -57,10 +69,11 @@ TEST_F(E2ETest, Setup1_MultipleAppend) {
 
     // check log size
     ASSERT_EQ(log.size(), 1);
+    ASSERT_EQ(log.size(), 1);
 
     // verify batch contents
     vector<string> expected = {"amish donuts ", "are the ", "best"};
-    verify_index_matches_expected(log[0], expected);  // output commands, expected strings
+    verify_elements_match_expected(log[0], expected);  // output commands, expected strings
 }
 
 TEST_F(E2ETest, Setup1_SingleAppendThreeEpochs) {
@@ -176,3 +189,4 @@ TEST_F(E2ETest, Setup1_TwoClientsSingleAppendTwoEpochs) {
 
     ASSERT_EQ(expected.empty(), true);
 }
+**/

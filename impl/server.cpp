@@ -13,20 +13,18 @@ namespace impl {
         // init lag
         lag_ = config_.epoch_duration_ms;
 
-        // init subscriber worker threads
+        // init subscriber worker threads map
         for (size_t i = 0; i < config_.subscribers.size(); i++) {
             auto worker = std::make_unique<SubscriberWorker>();
-
-            // insert into map
             {
                 std::lock_guard<std::mutex> lock(subscriber_workers_mu_);
                 subscriber_workers_[i] = std::move(worker);
             }
+        }
 
-            // create thread
-            subscriber_workers_[i]->worker_thread = std::make_unique<thread>(
-                &Server::subscriber_worker_loop, this, i
-            );
+        // start subscriber worker threads
+        for (size_t i = 0; i < config_.subscribers.size(); i++) {
+            subscriber_workers_[i]->worker_thread = thread(&Server::subscriber_worker_loop, this, i);
         }
         
         // set value of members (we already know ip addr is in our valid range based on parsed config)
@@ -63,9 +61,7 @@ namespace impl {
                 NetworkUtils::send_message(proxy_socket, ack_msg);
 
                 // begin replication
-                std::thread([this, msg]() {
-                    broadcast_to_subscribers(msg);
-                }).detach();
+                broadcast_to_subscribers(msg);
             }
 
             else if (msg.type == ZIP_RESPONSE) {
@@ -328,42 +324,18 @@ namespace impl {
         Message fwd_msg = msg;
         fwd_msg.sender_id = id();
 
-        mu_.lock();
-        vector<Address> subs_copy = config_.subscribers;
-        mu_.unlock();
-
-        vector<future<bool>> futures;
-        for (size_t i = 0; i < subs_copy.size(); i++) {
-            Address subscriber = subs_copy[i];
-
-            futures.push_back(std::async(std::launch::async, [this, subscriber, fwd_msg, i]() {
-                int sock = connection_pool_.get_connection(subscriber);
-                if (sock < 0) {
-                    //std::cerr << "Server " << id() << " failed to connect to subscriber " << i << std::endl;
-                    return false;
+        // push message to queues of subscriber workers
+        {
+            std::lock_guard<mutex> lock(subscriber_workers_mu_);
+            for (auto& [idx, worker] : subscriber_workers_) {
+                {
+                    lock_guard<mutex> lock(worker->queue_mu);
+                    worker->pending_queue.push({fwd_msg});
                 }
-
-                if (!NetworkUtils::send_message(sock, fwd_msg)) {
-                    //std::cerr << "Server " << id() << " failed to send to subscriber " << i << std::endl;
-                    return false;
-                }
-
-                Message ack;
-                if (!NetworkUtils::recv_message(sock, ack)) {
-                    //std::cerr << "Server " << id() << " failed to recv ACK from subscriber " << i << std::endl;
-                    return false;
-                }
-
-                return true;
-            }));
+                worker->cv.notify_one();
+            }
         }
-
-        size_t successful_sends = 0;
-        for (auto& f : futures) {
-            if (f.get()) successful_sends++;
-        }
-
-        cout << "[server " << id() << "] broadcast seq=" << msg.get_sequence_number() << " successful sends=" << successful_sends << "/" << num_subscribers() << endl;
+        // NOTE: does not wait for acks
     }
 
     bool Server::is_blocked(NodeId id) {
@@ -425,7 +397,7 @@ namespace impl {
             std::lock_guard<std::mutex> lock(subscriber_workers_mu_);
             for (auto& [idx, worker] : subscriber_workers_) {
                 {
-                    lock_guard<mutex> lock(worker->mu);
+                    lock_guard<mutex> lock(worker->queue_mu);
                     worker->shutdown = true;
                 }
                 worker->cv.notify_one();
@@ -435,8 +407,8 @@ namespace impl {
         {
             std::lock_guard<std::mutex> lock(subscriber_workers_mu_);
             for (auto& [idx, worker] : subscriber_workers_) {
-                if (worker->worker_thread && worker->worker_thread->joinable()) {
-                    worker->worker_thread->join();
+                if (worker->worker_thread.joinable()) {
+                    worker->worker_thread.join();
                 }
             }
         }
@@ -445,7 +417,7 @@ namespace impl {
             failure_detector_thread_.join();
         }
         connection_pool_.close_all();
-        shutdown();
+        //shutdown();
     }
 
     void Server::failure_detect() {

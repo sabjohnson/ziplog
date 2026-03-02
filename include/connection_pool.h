@@ -31,6 +31,7 @@ namespace impl {
             if (sock< 0) return -1;
 
             active_connections_[addr] = sock;
+            cout << "connection to " << addr.ip << std::to_string(addr.port) << " on socket " << sock << endl;
             return sock;
         }
 

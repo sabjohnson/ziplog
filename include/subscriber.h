@@ -1,9 +1,10 @@
 #pragma once
 #include "base_node.h"
 #include "connection_pool.h"
+#include <condition_variable>
 
 using namespace ziplog::api;
-
+using std::condition_variable;
 namespace ziplog {
 namespace impl {
 
@@ -20,6 +21,7 @@ namespace impl {
 
             // threading safety
             mutex mu_;
+            condition_variable log_cv_;
 
             // connection pool optimization
             ConnectionPool connection_pool_;
@@ -38,6 +40,13 @@ namespace impl {
             void print_expanded_log();
             vector<Command> log() {
                 return log_;
+            }
+
+            void wait_for_log_size(int size) {
+                std::unique_lock<mutex> lock(mu_);
+                log_cv_.wait(lock, [this, size]() {
+                    return static_cast<int>(log_.size()) > size;
+                });
             }
     };
 }}
