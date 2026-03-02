@@ -11,20 +11,20 @@ using namespace std::chrono_literals;
 namespace ziplog::impl
 {
 
-    class EpochTimer
+    class ZipperEpochTimer
     {
     public:
-        EpochTimer(Timestamp epoch_duration_ms,
-                   std::function<void()> on_allocate,
-                   std::function<void()> on_epoch_end)
+        ZipperEpochTimer(Timestamp epoch_duration_ms,
+                         std::function<void()> on_allocate,
+                         std::function<void()> on_epoch_end)
             : epoch_duration_ms_(epoch_duration_ms), on_allocate_(std::move(on_allocate)), on_epoch_end_(std::move(on_epoch_end)) {}
 
-        ~EpochTimer() { stop(); }
+        ~ZipperEpochTimer() { stop(); }
 
         void start()
         {
             running_ = true;
-            thread_ = std::thread(&EpochTimer::run, this);
+            thread_ = std::thread(&ZipperEpochTimer::run, this);
         }
 
         void stop()

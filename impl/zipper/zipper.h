@@ -26,7 +26,7 @@ namespace ziplog::impl
         // --- components ---
         SlotAllocator slot_allocator_;
         ReconfigManager reconfig_manager_;
-        EpochTimer epoch_timer_;
+        ZipperEpochTimer epoch_timer_;
 
         // --- message handling ---
         void handle_connection(int proxy_socket) override;
