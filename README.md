@@ -24,8 +24,8 @@ make test                          # build + run all tests
 | Config | File | Proxies | Servers | Subscribers |
 |---|---|---|---|---|
 | setup1 | `config/setup1.json` | 1 | 1 | 1 |
-| setup3 | `config/setup3.json` | 1 | 1 | 2 |
-| setup4 | `config/setup4.json` | 1 | 2 | 2 |
+| setup3 | `config/servers.json` | 3 | 3 | 3 |
+| setup4 | `config/servers_test.json` | 1 | 3 | 1 |
 
 Tests inherit from `ZiplogTestBase` (defined in `tests/test_utils.h`), which handles `StartSystem`, `TearDown`, and utilities like `send_append`, `wait_for_propagation`, and `expand_log`.
 
