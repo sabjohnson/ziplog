@@ -1,4 +1,4 @@
-#include "slot_allocator.h"
+#include "zipper/slot_allocator.h"
 #include <algorithm>
 #include <iostream>
 
@@ -12,26 +12,42 @@ namespace ziplog::impl
 
     void SlotAllocator::update_estimate(NodeId proxy_id, size_t num_requests)
     {
+        cout << "[update_estimate] waiting for lock..." << endl;
         std::lock_guard<std::mutex> lock(registry_.mutex());
-        if (!registry_.exists(proxy_id))
+        cout << "[update_estimate] got lock" << endl;
+        if (!registry_.exists_unlocked(proxy_id))
+        {
+            cout << "zipper cant update estimate because proxy not registered" << endl;
             return;
-        registry_.get(proxy_id).estimate = num_requests;
+        }
+        registry_.get_unlocked(proxy_id).estimate = num_requests;
+        cout << "zipper update estimate exited" << endl;
     }
 
     std::unordered_map<NodeId, std::vector<SequenceNumber>>
     SlotAllocator::compute_allocations(Timestamp next_epoch, Timestamp epoch_duration_ms)
     {
+        cout << "[slot_allocator] waiting for lock..." << endl;
         std::lock_guard<std::mutex> lock(registry_.mutex());
+        cout << "[slot_allocator] got lock" << endl;
 
         // build sorted timestamp list across all active proxies
         std::vector<std::pair<double, NodeId>> timestamps;
 
         for (auto &[proxy_id, state] : registry_.all())
         {
+            cout << "proxy " << proxy_id << " status=" << (int)state.status << " estimate=" << state.estimate << endl;
+
             if (state.status != ProxyStatus::ACTIVE)
+            {
+                cout << "proxy not active skipping" << endl;
                 continue;
+            }
             if (state.estimate == 0)
+            {
+                cout << "proxy doesnt want slots" << endl;
                 continue;
+            }
 
             double interval = static_cast<double>(epoch_duration_ms) / state.estimate;
             double time_point = interval / 2.0;
@@ -55,6 +71,7 @@ namespace ziplog::impl
             registry_.get(proxy_id).allocated_sequences.push_back(seq);
         }
 
+        cout << "[zipper] compute_allocations() exited" << endl;
         return result;
     }
 

@@ -1,10 +1,10 @@
 #include "common.h"
 #include "config.h"
-#include "zipper.h"
-#include "client.h"
-#include "proxy.h"
-#include "server.h"
-#include "subscriber.h"
+#include "zipper/zipper.h"
+#include "client/client.h"
+#include "proxy/proxy.h"
+#include "server/server.h"
+#include "subscriber/subscriber.h"
 
 #define SUCCESS 0
 #define ERROR -1
@@ -12,8 +12,10 @@
 using namespace ziplog::api;
 using namespace ziplog::impl;
 
-int main(int argc, char* argv[]) {
-    if (argc != 3 && argc != 4) {
+int main(int argc, char *argv[])
+{
+    if (argc != 3 && argc != 4)
+    {
         std::cerr << "Usage: <mode> <config_file> [id]" << std::endl;
         std::cerr << "Modes:" << std::endl;
         std::cerr << "  zipper              - no ID required" << std::endl;
@@ -27,76 +29,99 @@ int main(int argc, char* argv[]) {
         return ERROR;
     }
 
-    try {
+    try
+    {
         string mode = argv[1];
         string config_file = argv[2];
 
         optional<NodeId> id;
-        if (argc == 4) {
+        if (argc == 4)
+        {
             id = static_cast<NodeId>(std::stoi(argv[3]));
         }
 
         ZiplogConfig config = parse_config(config_file);
 
-        if (mode == "zipper") {
+        if (mode == "zipper")
+        {
             Zipper zipper(config.make_zipper_config());
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
-        } else if (mode == "client") {
-            if (!id.has_value()) {
+        }
+        else if (mode == "client")
+        {
+            if (!id.has_value())
+            {
                 std::cerr << "Client mode requires an proxy ID to contact" << std::endl;
                 return ERROR;
             }
-            Address proxy_addr = config.proxies[*id];  // get the proxy address using the id
+            Address proxy_addr = config.proxies[*id]; // get the proxy address using the id
             Client client(proxy_addr);
 
             // read from stdin and send appends
             std::cout << "Type string value to send APPENDs and hit Enter. Enter 'quit' to shutdown..." << std::endl;
             string line;
-            while (std::getline(std::cin, line)) {
-                if (line == "quit") break;
+            while (std::getline(std::cin, line))
+            {
+                if (line == "quit")
+                    break;
                 bool success = client.append(line);
                 std::cout << (success ? "Sent successfully" : "Send failed") << std::endl;
             }
-        } else if (mode == "proxy") {
-            if (!id.has_value()) {
+        }
+        else if (mode == "proxy")
+        {
+            if (!id.has_value())
+            {
                 std::cerr << "Proxy mode requires an ID" << std::endl;
                 return ERROR;
             }
             Proxy proxy(config.make_proxy_config(*id));
-            
+
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
-        } else if (mode == "server") {
-            if (!id.has_value()) {
+        }
+        else if (mode == "server")
+        {
+            if (!id.has_value())
+            {
                 std::cerr << "Server mode requires an ID" << std::endl;
                 return ERROR;
             }
             Server server(config.make_server_config(*id));
-            
+
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
-        } else if (mode == "subscriber") {
-            if (!id.has_value()) {
+        }
+        else if (mode == "subscriber")
+        {
+            if (!id.has_value())
+            {
                 std::cerr << "Subscriber mode requires an ID" << std::endl;
                 return ERROR;
             }
             Subscriber subscriber(config.make_subscriber_config(*id));
-            
+
             // keep alive until user presses Enter
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
-        } else {
+        }
+        else
+        {
             std::cerr << "Unsupported mode: " << mode << std::endl;
             return ERROR;
         }
-    } catch (const ConfigParseError& e) {
+    }
+    catch (const ConfigParseError &e)
+    {
         std::cerr << "Config Error: " << e.what() << std::endl;
         return ERROR;
-    } catch (const std::exception& e) {
+    }
+    catch (const std::exception &e)
+    {
         std::cerr << "Error: " << e.what() << std::endl;
         return ERROR;
     }

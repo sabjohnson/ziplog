@@ -1,9 +1,8 @@
 # Compiler settings
 CXX = g++
-#CXXFLAGS = -std=c++17 -Wall -Wextra -g
 CXXFLAGS=-std=c++17 -Wall -Wextra -g -fsanitize=address -fno-omit-frame-pointer
 
-INCLUDES = -I. -Iapi -Iinclude -Ithird_party
+INCLUDES = -I. -Iapi -Iinclude -Iimpl -Ithird_party
 
 # Directories
 OBJ_DIR = obj
@@ -11,14 +10,33 @@ JSON_HEADER = third_party/json.hpp
 
 # Source files
 API_SOURCES = api/config.cpp api/message.cpp api/network_utils.cpp
-SRC_SOURCES = impl/zipper.cpp impl/client.cpp impl/proxy.cpp impl/server.cpp impl/subscriber.cpp impl/main.cpp
+
+SRC_SOURCES = \
+	impl/main.cpp \
+	impl/client/client.cpp \
+	impl/proxy/proxy.cpp \
+	impl/server/server.cpp \
+	impl/subscriber/subscriber.cpp \
+	impl/zipper/zipper.cpp \
+	impl/zipper/reconfig_manager.cpp \
+	impl/zipper/slot_allocator.cpp
 
 ALL_SOURCES = $(API_SOURCES) $(SRC_SOURCES)
 OBJECTS = $(patsubst %.cpp,$(OBJ_DIR)/%.o,$(ALL_SOURCES))
 TEST_OBJECTS = $(filter-out $(OBJ_DIR)/impl/main.o, $(OBJECTS)) # https://www.gnu.org/software/make/manual/html_node/Text-Functions.html
 TARGET = ziplog
 
-COMMON_HEADERS = api/common.h api/types.h api/config.h api/message.h api/network_utils.h api/address.h api/node_config.h include/base_node.h
+COMMON_HEADERS = \
+	api/common.h \
+	api/types.h \
+	api/config.h \
+	api/message.h \
+	api/network_utils.h \
+	api/address.h \
+	api/node_config.h \
+	include/base_node.h \
+	include/circular_buffer.h \
+	include/connection_pool.h \
 
 # Test information
 TEST_LIBS = -lgtest -lgtest_main -lpthread
@@ -26,6 +44,8 @@ TEST_RUNNER = test_runner
 
 # Link flags - ADD -fsanitize=address here too
 LDFLAGS = -fsanitize=address -lpthread
+
+# Targets --------------------------------------------------
 
 # Build main executable
 $(TARGET): $(OBJECTS) | check_json
@@ -36,6 +56,23 @@ $(TARGET): $(OBJECTS) | check_json
 $(OBJ_DIR)/%.o: %.cpp $(COMMON_HEADERS) | check_json
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+# Tests ----------------------------------------------------
+TEST_SOURCES = $(wildcard tests/*.cpp)
+TEST_OBJS = $(patsubst tests/%.cpp,$(OBJ_DIR)/tests/%.o,$(TEST_SOURCES))
+
+$(OBJ_DIR)/tests/%.o: tests/%.cpp $(COMMON_HEADERS) | check_json
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
+test_build: $(TEST_OBJECTS) $(TEST_OBJS) | check_json
+	$(CXX) $(CXXFLAGS) $(TEST_OBJS) $(TEST_OBJECTS) -o $(TEST_RUNNER) $(TEST_LIBS)
+
+# Build and run test target
+test: test_build
+	./$(TEST_RUNNER)
+
+# Dependencies ---------------------------------------------
 
 # Check if JSON header exists, download if not
 check_json:
@@ -51,28 +88,14 @@ download_json:
 	mkdir -p third_party
 	curl -L https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp -o $(JSON_HEADER)
 
-# Clean - just remove obj directory and executable
+# Clean ---------------------------------------------------------
+
+# Just remove obj directory and executable
 clean:
 	rm -rf $(OBJ_DIR) $(TARGET) $(TEST_RUNNER)
 
 # Clean everything including downloaded dependencies
 external_clean: clean
 	rm -rf third_party/
-
-# Build test target
-# Your current (WRONG):
-$(OBJ_DIR)/tests/%.o: tests/%.cpp $(COMMON_HEADERS) | check_json
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
-
-TEST_SOURCES = $(wildcard tests/*.cpp)
-TEST_OBJS = $(patsubst tests/%.cpp,$(OBJ_DIR)/tests/%.o,$(TEST_SOURCES))
-
-test_build: $(TEST_OBJECTS) $(TEST_OBJS) | check_json
-	$(CXX) $(CXXFLAGS) $(TEST_OBJS) $(TEST_OBJECTS) -o $(TEST_RUNNER) -lpthread -lgtest -lgtest_main
-
-# Build and run test target
-test: test_build
-	./$(TEST_RUNNER)
 
 .PHONY: clean external_clean test test_build check_json download_json

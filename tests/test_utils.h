@@ -1,11 +1,11 @@
 #ifndef TEST_UTILS_H
 #define TEST_UTILS_H
 
-#include "zipper.h"
-#include "client.h"
-#include "proxy.h"
-#include "server.h"
-#include "subscriber.h"
+#include "zipper/zipper.h"
+#include "client/client.h"
+#include "proxy/proxy.h"
+#include "server/server.h"
+#include "subscriber/subscriber.h"
 #include <gtest/gtest.h>
 
 using namespace ziplog::api;
@@ -189,12 +189,6 @@ namespace ziplog::test
             servers.clear();
             proxies.clear();
             zipper.reset();
-        }
-
-        void false_return()
-        {
-            int x = 1 + 1;
-            cout << "false return" << endl;
         }
 
         /**

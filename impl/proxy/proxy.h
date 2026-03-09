@@ -2,7 +2,7 @@
 #include "base_node.h"
 #include "connection_pool.h"
 #include "slot_scheduler.h"
-#include "batch_replicator.h"
+#include "server_replicator.h"
 #include "client_buffer_manager.h"
 #include "proxy_epoch_timer.h"
 
@@ -24,7 +24,7 @@ namespace ziplog::impl
     private:
         // --- components ---
         SlotScheduler slot_scheduler_;
-        BatchReplicator replicator_;
+        ServerReplicator replicator_;
         ClientBufferManager client_buffers_;
         ProxyEpochTimer epoch_timer_;
 

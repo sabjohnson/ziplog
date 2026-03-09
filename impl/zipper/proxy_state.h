@@ -1,5 +1,6 @@
 #pragma once
-#include "../api/types.h"
+#include "types.h"
+#include "address.h"
 #include <unordered_map>
 #include <set>
 #include <vector>
@@ -24,14 +25,14 @@ namespace ziplog::impl
 
         // slot allocation
         size_t estimate = 0;
-        std::vector<SequenceNumber> allocated_sequences;
+        std::vector<SequenceNumber> allocated_sequences = {};
 
         // reconfiguration
         ProxyStatus status = ProxyStatus::ACTIVE;
         int freeze_round = 0;
-        std::set<NodeId> freeze_responders;
-        std::set<NodeId> reporters;
-        std::set<SequenceNumber> last_sequences;
+        std::set<NodeId> freeze_responders = {};
+        std::set<NodeId> reporters = {};
+        std::set<SequenceNumber> last_sequences = {};
     };
 
     // Shared registry - both SlotAllocator and ReconfigManager hold a reference
@@ -66,6 +67,10 @@ namespace ziplog::impl
             std::lock_guard<std::mutex> lock(mu_);
             return proxies_.count(id) > 0;
         }
+
+        // private - no lock (for use when mu_ already held)
+        bool exists_unlocked(NodeId id) const { return proxies_.count(id) > 0; }
+        ProxyState &get_unlocked(NodeId id) { return proxies_.at(id); }
 
         // access with lock held by caller
         ProxyState &get(NodeId id) { return proxies_.at(id); }

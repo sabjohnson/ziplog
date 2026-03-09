@@ -1,4 +1,4 @@
-#include "zipper.h"
+#include "zipper/zipper.h"
 #include <algorithm>
 #include <future>
 
@@ -86,19 +86,29 @@ namespace ziplog::impl
 
     void Zipper::allocate_slots()
     {
+        cout << "zipper allocate_slots() called" << endl;
         auto allocations = slot_allocator_.compute_allocations(
             epoch_timer_.next_epoch(), config_.epoch_duration_ms);
 
+        if (allocations.size())
+        {
+            cout << "zipper allocate_slots() got values" << endl;
+        }
+
         for (const auto &[proxy_id, values] : allocations)
         {
+            cout << "zipper proxy " << proxy_id << " has slots" << endl;
             thread([this, proxy_id, values]()
                    { deliver_slot_allocation(proxy_id, values); })
                 .detach();
         }
+        cout << "zipper allocate_slots() exited" << endl;
     }
 
     void Zipper::deliver_slot_allocation(NodeId proxy_id, const vector<SequenceNumber> &values)
     {
+        cout << "zipper done sending slots out" << endl;
+
         Message resp;
         resp.type = ZIP_RESPONSE;
         resp.shard_id = shard();
@@ -107,13 +117,15 @@ namespace ziplog::impl
         resp.set_assigned_sequences(values);
 
         // send to proxy
+        Address proxy;
         {
             lock_guard<mutex> lock(registry_.mutex());
-            Address proxy = registry_.get(proxy_id).address;
-            int sock = connection_pool_.get_connection(proxy);
-            if (sock >= 0 && !NetworkUtils::send_message(sock, resp))
-                connection_pool_.close_connection(proxy);
+            proxy = registry_.get(proxy_id).address;
         }
+
+        int sock = connection_pool_.get_connection(proxy);
+        if (sock >= 0 && !NetworkUtils::send_message(sock, resp))
+            connection_pool_.close_connection(proxy);
 
         // forward to all servers
         for (const Address &server : config_.servers)
@@ -123,6 +135,8 @@ namespace ziplog::impl
                 continue;
             NetworkUtils::send_message(sock, resp);
         }
+
+        cout << "zipper done sending slots out" << endl;
     }
 
     void Zipper::add_proxy(const Message &msg, bool is_new)

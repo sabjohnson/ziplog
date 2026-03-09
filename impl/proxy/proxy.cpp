@@ -117,7 +117,7 @@ namespace ziplog::impl
         if (!is_new)
             req.sender_id = id();
 
-        string addr = address().ip + ":" + to_string(address().port);
+        string addr = address().ip + ":" + std::to_string(address().port);
         req.data = Command(addr.begin(), addr.end());
 
         int sock = zipper_pool_.get_connection(config_.zipper);
@@ -160,7 +160,7 @@ namespace ziplog::impl
             cout << "[proxy " << id() << "] no slots available" << endl;
             return;
         }
-
+        cout << "[proxy " << id() << "] send_oyt_batch() called" << endl;
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();

@@ -1,7 +1,7 @@
 #pragma once
-#include "../api/types.h"
-#include "../api/address.h"
-#include "../proxy_state.h"
+#include "types.h"
+#include "address.h"
+#include "zipper/proxy_state.h"
 #include "network_utils.h"
 #include <functional>
 #include <vector>

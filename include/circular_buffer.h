@@ -21,7 +21,7 @@ namespace ziplog
             size_t tail_ = 0;
             size_t size_ = 0;
             size_t capacity_;
-            mutex mu_;
+            mutable mutex mu_;
             condition_variable cv_;
             static constexpr size_t BUFFER_SIZE = 1000; // constant we can make configurable later
 

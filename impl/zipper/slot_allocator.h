@@ -1,6 +1,6 @@
 #pragma once
-#include "../api/types.h"
-#include "../proxy_state.h"
+#include "types.h"
+#include "zipper/proxy_state.h"
 #include <unordered_map>
 #include <vector>
 

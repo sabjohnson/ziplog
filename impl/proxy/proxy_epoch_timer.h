@@ -26,6 +26,7 @@ namespace ziplog::impl
         {
             running_ = true;
             thread_ = std::thread(&ProxyEpochTimer::run, this);
+            cout << "proxy epoch timer started" << endl;
         }
 
         void stop()

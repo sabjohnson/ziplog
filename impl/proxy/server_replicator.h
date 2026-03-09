@@ -15,13 +15,13 @@ using namespace ziplog::api;
 namespace ziplog::impl
 {
 
-    class BatchReplicator
+    class ServerReplicator
     {
     public:
-        BatchReplicator(const std::vector<Address> &servers, size_t quorum)
+        ServerReplicator(const std::vector<Address> &servers, size_t quorum)
             : servers_(servers), quorum_(quorum) {}
 
-        ~BatchReplicator() { shutdown(); }
+        ~ServerReplicator() { shutdown(); }
 
         void start()
         {
@@ -29,7 +29,7 @@ namespace ziplog::impl
             {
                 auto worker = std::make_unique<ServerWorker>();
                 server_workers_[i] = std::move(worker);
-                server_workers_[i]->thread = std::thread(&BatchReplicator::worker_loop, this, i);
+                server_workers_[i]->thread = std::thread(&ServerReplicator::worker_loop, this, i);
             }
         }
 

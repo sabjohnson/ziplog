@@ -3,7 +3,7 @@
 #include <deque>
 #include <mutex>
 #include <cmath>
-#include <gtest/gtest.h>
+#include <cassert>
 
 using namespace ziplog::api;
 
@@ -31,7 +31,7 @@ namespace ziplog::impl
             }
             if (!timeouts_.empty())
                 next_send_ = timeouts_.front();
-            ASSERT_TRUE(timeouts_.size() == sequences_.size()); // include for safety
+            assert(timeouts_.size() == sequences_.size()); // include for safety
         }
 
         // called per incoming client request

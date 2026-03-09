@@ -1,10 +1,10 @@
 #pragma once
 #include "base_node.h"
 #include "connection_pool.h"
-#include "proxy_state.h"
-#include "slot_allocator.h"
-#include "reconfig_manager.h"
-#include "epoch_timer.h"
+#include "zipper/proxy_state.h"
+#include "zipper/slot_allocator.h"
+#include "zipper/reconfig_manager.h"
+#include "zipper/epoch_timer.h"
 #include <future>
 #include <deque>
 
