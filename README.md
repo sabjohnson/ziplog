@@ -46,8 +46,10 @@ To send appends interactively, use the client mode.
 
 ```json
 {
+  "f": 1,
   "shard_id": 0,
   "epoch_duration_ms": 500,
+  "max_epoch_history": 10,
   "zipper":      { "ip": "127.0.0.1", "port": 8000 },
   "proxies":    [{ "ip": "127.0.0.1", "port": 8001 }],
   "servers":    [{ "ip": "127.0.0.1", "port": 8010 }],
