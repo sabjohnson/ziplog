@@ -18,13 +18,13 @@ namespace ziplog::impl
     {
         broadcaster_.start(cfg.subscribers);
         start_listening();
-        liveness_.start(id());
+        // liveness_.start(id());
     }
 
     Server::~Server()
     {
         broadcaster_.shutdown();
-        liveness_.stop();
+        // liveness_.stop();
         connection_pool_.close_all();
     }
 
