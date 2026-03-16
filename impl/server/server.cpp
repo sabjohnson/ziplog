@@ -6,8 +6,8 @@ namespace ziplog::impl
 {
 
     Server::Server(const ServerConfig &cfg)
-        : BaseNode<ServerConfig>(cfg), liveness_(cfg.epoch_duration_ms,
-                                                 cfg.epoch_duration_ms, // lag = 1 epoch
+        : BaseNode<ServerConfig>(cfg), liveness_(EpochDurationUnit(cfg.epoch_duration),
+                                                 EpochDurationUnit(cfg.epoch_duration * 5), // lag = 5 epochs rn bc microseconds
                                                  cfg.proxies.size(),
                                                  cfg.zipper,
                                                  connection_pool_),
@@ -23,15 +23,17 @@ namespace ziplog::impl
 
     Server::~Server()
     {
+        std::cout << "Server " << id() << " shutdown() called" << std::endl;
         broadcaster_.shutdown();
         liveness_.stop();
+        BaseNode::shutdown();
         connection_pool_.close_all();
+        std::cout << "Server " << id() << " shutdown() complete" << std::endl;
     }
 
     void Server::shutdown()
     {
         BaseNode::shutdown();
-        std::cout << "Server " << id() << " shutting down" << std::endl;
     }
 
     void Server::handle_connection(int proxy_socket)

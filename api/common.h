@@ -17,36 +17,37 @@
 #include <iostream>
 #include <optional>
 
-#include <arpa/inet.h>  // htonl/ntohl
-#include <cstring>      // memcpy
+#include <arpa/inet.h> // htonl/ntohl
+#include <cstring>     // memcpy
 #include <unistd.h>
 
 // commonly used types in implementation files
-using std::string;
-using std::vector;
-using std::unordered_map;
+using std::cerr;
+using std::cout;
+using std::endl;
 using std::pair;
 using std::set;
-using std::cout;
-using std::cerr;
-using std::endl;
+using std::string;
+using std::unordered_map;
+using std::vector;
 
 // std items
-using std::thread;
-using std::mutex;
 using std::atomic;
 using std::lock_guard;
-using std::optional;
+using std::mutex;
 using std::nullopt;
+using std::optional;
+using std::thread;
 
 // chrono aliases
 using namespace std::chrono;
-using namespace std::chrono_literals;  // for 100ms, 1s, etc.
+using namespace std::chrono_literals; // for 100ms, 1s, etc.
 
-namespace ziplog {
+namespace ziplog
+{
 
     // constants
-    static constexpr uint32_t MAX_MESSAGE_SIZE = 65535;     // 2 ^ 16... 2 bytes read in for message header on tcp connection
-    static constexpr uint64_t EPOCH_DURATION_MS = 1000;     // keep this at a multiple of 10
+    static constexpr uint32_t MAX_MESSAGE_SIZE = 65535; // 2 ^ 16... 2 bytes read in for message header on tcp connection
+    static constexpr uint64_t EPOCH_DURATION = 1000;    // keep this at a multiple of 10
     static constexpr uint64_t MAX_EPOCH_HISTORY = 10;
 }

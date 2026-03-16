@@ -20,7 +20,7 @@ namespace ziplog::test
      */
     inline void wait_for_propagation(int num = 3)
     {
-        auto duration = num * ziplog::EPOCH_DURATION_MS;
+        auto duration = num * ziplog::EPOCH_DURATION;
         std::this_thread::sleep_for(std::chrono::milliseconds(duration));
     }
 
@@ -206,7 +206,6 @@ namespace ziplog::test
             cout << "send append cmd= " << cmd << endl;
             if (clients[client_id]->append(string_to_command(cmd)))
                 return true;
-            false_return();
             return false;
         }
 

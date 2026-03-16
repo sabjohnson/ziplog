@@ -18,12 +18,12 @@ namespace ziplog::impl
     class ProxyLivenessTracker
     {
     public:
-        ProxyLivenessTracker(Timestamp epoch_duration_ms,
-                             Timestamp lag,
+        ProxyLivenessTracker(EpochDurationUnit epoch_duration,
+                             EpochDurationUnit lag,
                              size_t num_proxies,
                              const Address &zipper,
                              ConnectionPool &pool)
-            : epoch_duration_ms_(epoch_duration_ms), lag_(lag), num_proxies_(num_proxies), zipper_(zipper), pool_(pool) {}
+            : epoch_duration_(epoch_duration.count()), lag_(lag.count()), num_proxies_(num_proxies), zipper_(zipper), pool_(pool) {}
 
         ~ProxyLivenessTracker() { stop(); }
 
@@ -57,11 +57,11 @@ namespace ziplog::impl
             if (blocked_for_reconfiguration_.find(proxy_id) == blocked_for_reconfiguration_.end())
             {
                 auto &tq = proxy_timeouts_[proxy_id];
-                // if (tq.size() < 2)
-                // {
-                //     std::cerr << "warning: proxy_timeouts_ too small for proxy " << proxy_id << std::endl;
-                //     return;
-                // }
+                if (tq.size() < 2)
+                {
+                    std::cerr << "warning: proxy_timeouts_ too small for proxy size=" << tq.size() << std::endl;
+                    return;
+                }
                 assert(tq.size() >= 2 && tq.size() % 2 == 0);
                 tq.pop_front();
                 last_used_sequence_number_[proxy_id] = tq.front();
@@ -124,7 +124,7 @@ namespace ziplog::impl
         {
             while (running_)
             {
-                Timestamp now = now_ms();
+                Timestamp current = now();
                 for (NodeId id = 0; id < static_cast<NodeId>(num_proxies_); id++)
                 {
                     if (is_blocked(id))
@@ -132,16 +132,20 @@ namespace ziplog::impl
 
                     std::unique_lock<std::mutex> lock(mu_);
                     bool should_report =
-                        blocked_for_reconfiguration_.find(id) == blocked_for_reconfiguration_.end() && !proxy_timeouts_[id].empty() && now >= proxy_timeouts_[id].front() + lag_;
+                        blocked_for_reconfiguration_.find(id) == blocked_for_reconfiguration_.end() && !proxy_timeouts_[id].empty() && current >= proxy_timeouts_[id].front() + lag_;
                     lock.unlock();
 
                     if (should_report)
                     {
                         std::cout << "[liveness] reporting proxy " << id << std::endl;
+                        std::cout << "[liveness] current=" << current
+                                  << " timeout=" << proxy_timeouts_[id].front()
+                                  << " deadline=" << proxy_timeouts_[id].front() + lag_
+                                  << std::endl;
                         report(id);
                     }
                 }
-                std::this_thread::sleep_for(std::chrono::milliseconds(epoch_duration_ms_));
+                std::this_thread::sleep_for(EpochDurationUnit(epoch_duration_));
             }
         }
 
@@ -159,7 +163,7 @@ namespace ziplog::impl
             NetworkUtils::send_message(sock, req);
         }
 
-        Timestamp epoch_duration_ms_;
+        Timestamp epoch_duration_;
         Timestamp lag_;
         size_t num_proxies_;
         Address zipper_;

@@ -15,7 +15,9 @@ namespace ziplog::impl
         NodeId failed_proxy = msg.get_failed_proxy();
         std::cout << "[reconfig] received report for proxy " << failed_proxy << std::endl;
 
+        cout << "[handle_report] waiting for lock..." << endl;
         std::lock_guard<std::mutex> lock(registry_.mutex());
+        cout << "[handle_report] got lock" << endl;
         if (!registry_.exists(failed_proxy))
             return;
 
@@ -45,7 +47,9 @@ namespace ziplog::impl
     {
         NodeId failed_proxy = msg.get_failed_proxy();
 
+        cout << "[handle freeze respnose] waiting for lock..." << endl;
         std::unique_lock<std::mutex> lock(registry_.mutex());
+        cout << "[handle freeze response] got lock" << endl;
         if (!registry_.exists(failed_proxy))
             return;
 
@@ -81,7 +85,9 @@ namespace ziplog::impl
     void ReconfigManager::send_freeze(NodeId failed_proxy, bool first_round)
     {
         {
+            cout << "[send freeze] waiting for lock..." << endl;
             std::lock_guard<std::mutex> lock(registry_.mutex());
+            cout << "[send freeze] got lock" << endl;
             ProxyState &state = registry_.get(failed_proxy);
             state.freeze_round = first_round ? 1 : state.freeze_round + 1;
             state.freeze_responders.clear();
@@ -94,8 +100,10 @@ namespace ziplog::impl
         freeze.set_failed_proxy(failed_proxy);
 
         {
+            cout << "[send freeze 1] waiting for lock..." << endl;
             std::lock_guard<std::mutex> lock(registry_.mutex());
             freeze.set_round(registry_.get(failed_proxy).freeze_round);
+            cout << "[send freeze 1] got lock" << endl;
         }
 
         broadcast_to_servers(freeze);
@@ -106,7 +114,9 @@ namespace ziplog::impl
     {
         std::vector<SequenceNumber> allocated;
         {
+            cout << "[send freeze complete] waiting for lock..." << endl;
             std::lock_guard<std::mutex> lock(registry_.mutex());
+            cout << "[send freeze complete] got lock" << endl;
             ProxyState &state = registry_.get(failed_proxy);
             state.status = ProxyStatus::BLOCKED;
             allocated = state.allocated_sequences;

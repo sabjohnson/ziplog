@@ -105,7 +105,7 @@ namespace ziplog::impl
 
                 int sock = pool_.get_connection(worker.address);
                 if (sock < 0)
-                    continue;
+                    break;
 
                 if (NetworkUtils::send_message(sock, msg))
                 {

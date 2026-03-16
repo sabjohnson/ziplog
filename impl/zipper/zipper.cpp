@@ -20,7 +20,7 @@ namespace ziplog::impl
                                                                                                                   { return connection_pool_.get_connection(a); },
                                                                                                                   [this](const Address &a)
                                                                                                                   { connection_pool_.close_connection(a); }}),
-          epoch_timer_(cfg.epoch_duration_ms, [this]()
+          epoch_timer_(EpochDurationUnit(cfg.epoch_duration), [this]()
                        { allocate_slots(); }, [this]()
                        { introduce_proxies(); })
     {
@@ -34,12 +34,20 @@ namespace ziplog::impl
         epoch_timer_.start();
     }
 
+    Zipper::~Zipper()
+    {
+        cout << "Zipper shutdown() called" << endl;
+        epoch_timer_.stop();
+        cout << "Zipper timer stooped" << endl;
+        BaseNode::shutdown();
+        cout << "Zipper basenode shutdown" << endl;
+        connection_pool_.close_all();
+        cout << "Zipper shutdown() complete" << endl;
+    }
+
     void Zipper::shutdown()
     {
-        epoch_timer_.stop();
         BaseNode::shutdown();
-        connection_pool_.close_all();
-        cout << "Zipper shutting down" << endl;
     }
 
     void Zipper::handle_connection(int proxy_socket)
@@ -88,7 +96,7 @@ namespace ziplog::impl
     {
         cout << "zipper allocate_slots() called" << endl;
         auto allocations = slot_allocator_.compute_allocations(
-            epoch_timer_.next_epoch(), config_.epoch_duration_ms);
+            epoch_timer_.next_epoch(), config_.epoch_duration);
 
         if (allocations.size())
         {
@@ -199,7 +207,9 @@ namespace ziplog::impl
                                     {
                 NodeId new_id;
                 {
+                    cout << "[introduce proxies] waiting for lock..." << endl;
                     lock_guard<mutex> lock(registry_.mutex());
+                    cout << "[introduce proxies] got lock" << endl;
                     new_id = config_.proxies.size();
                     config_.proxies.push_back({ip, port});
                 }

@@ -12,11 +12,11 @@ namespace ziplog::impl
 
     Proxy::Proxy(const ProxyConfig &cfg)
         : BaseNode<ProxyConfig>(cfg), slot_scheduler_(cfg.max_epoch_history), replicator_(cfg.servers, quorum()), epoch_timer_(
-                                                                                                                      cfg.epoch_duration_ms,
+                                                                                                                      EpochDurationUnit(cfg.epoch_duration),
                                                                                                                       [this]()
                                                                                                                       { update_slot_estimate(); },
                                                                                                                       [this]()
-                                                                                                                      { return slot_scheduler_.next_send() != 0 && now_ms() >= slot_scheduler_.next_send(); },
+                                                                                                                      { return slot_scheduler_.next_send(); },
                                                                                                                       [this]()
                                                                                                                       { send_out_batch(); })
     {
@@ -27,11 +27,11 @@ namespace ziplog::impl
 
     Proxy::Proxy(const ProxyConfig &cfg, bool registered)
         : BaseNode<ProxyConfig>(cfg), slot_scheduler_(cfg.max_epoch_history), replicator_(cfg.servers, quorum()), epoch_timer_(
-                                                                                                                      cfg.epoch_duration_ms,
+                                                                                                                      EpochDurationUnit(cfg.epoch_duration),
                                                                                                                       [this]()
                                                                                                                       { update_slot_estimate(); },
                                                                                                                       [this]()
-                                                                                                                      { return slot_scheduler_.next_send() != 0 && now_ms() >= slot_scheduler_.next_send(); },
+                                                                                                                      { return slot_scheduler_.next_send(); },
                                                                                                                       [this]()
                                                                                                                       { send_out_batch(); })
     {
@@ -44,10 +44,12 @@ namespace ziplog::impl
 
     Proxy::~Proxy()
     {
-        cout << "Proxy " << id() << " shutting down" << endl;
+        cout << "Proxy " << id() << " shutdown() called" << endl;
         epoch_timer_.stop();
+        BaseNode::shutdown();
         replicator_.shutdown();
         zipper_pool_.close_all();
+        cout << "Proxy " << id() << " shutdown() complete" << endl;
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -160,7 +162,7 @@ namespace ziplog::impl
             cout << "[proxy " << id() << "] no slots available" << endl;
             return;
         }
-        cout << "[proxy " << id() << "] send_oyt_batch() called" << endl;
+        cout << "[proxy " << id() << "] send_out_batch() called" << endl;
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();

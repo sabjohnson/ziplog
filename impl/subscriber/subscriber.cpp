@@ -30,16 +30,17 @@ namespace ziplog::impl
 
     Subscriber::~Subscriber()
     {
+        cout << "Subscriber " << id() << " shutdown() called" << endl;
         connection_pool_.close_all();
         log_.print_expanded();
         log_.print_pending();
         log_.print_out_of_order();
+        cout << "Subscriber " << id() << " shutdown() complete" << endl;
     }
 
     void Subscriber::shutdown()
     {
         BaseNode::shutdown();
-        cout << "Subscriber " << id() << " shutting down" << endl;
     }
 
     void Subscriber::handle_connection(int server_sock)

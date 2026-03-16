@@ -1,0 +1,32 @@
+{
+    "f": 0,
+    "max_retries": 3,
+    "max_epoch_history": 10,
+    "epoch_duration_ns": 1000,
+    "zipper": {
+        "ip": "compute16.fractus.cs.cornell.edu",
+        "port": 8000
+    },
+    "proxies": [
+        {
+            "ip": "compute16.fractus.cs.cornell.edu",
+            "port": 8010
+        }
+    ],
+    "servers": [
+        {
+            "ip": "compute17.fractus.cs.cornell.edu",
+            "port": 8020
+        },
+        {
+            "ip": "compute19.fractus.cs.cornell.edu",
+            "port": 8020
+        }
+    ],
+    "subscribers": [
+        {
+            "ip": "compute16.fractus.cs.cornell.edu",
+            "port": 8030
+        }
+    ]
+}

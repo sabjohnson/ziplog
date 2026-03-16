@@ -140,7 +140,7 @@ namespace ziplog::impl
                 if (!ok)
                 {
                     worker.shutdown = true;
-                    continue;
+                    break;
                 }
 
                 // signal quorum waiter
