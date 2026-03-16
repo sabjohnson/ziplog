@@ -48,7 +48,7 @@ namespace ziplog::impl
         NodeId failed_proxy = msg.get_failed_proxy();
 
         cout << "[handle freeze respnose] waiting for lock..." << endl;
-        std::lock_guard<std::mutex> lock(registry_.mutex());
+        std::unique_lock<std::mutex> lock(registry_.mutex());
         cout << "[handle freeze response] got lock" << endl;
 
         if (!registry_.exists_unlocked(failed_proxy))
