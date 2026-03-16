@@ -42,7 +42,29 @@ namespace ziplog::impl
     {
         BaseNode::shutdown();
     }
+    /*
+        void Subscriber::handle_connection_og(int server_sock)
+        {
+            while (running())
+            {
+                Message msg;
+                if (!NetworkUtils::recv_message(server_sock, msg))
+                    break;
 
+                if (msg.type == APPEND || msg.type == SKIP)
+                    log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
+
+                Message ack;
+                ack.type = ACK;
+                ack.sender_id = id();
+                ack.seq_or_count = msg.seq_or_count;
+
+                if (!NetworkUtils::send_message(server_sock, ack))
+                    break;
+            }
+            close(server_sock);
+        }
+    */
     void Subscriber::handle_connection(int server_sock)
     {
         while (running())
@@ -52,13 +74,29 @@ namespace ziplog::impl
                 break;
 
             if (msg.type == APPEND || msg.type == SKIP)
-                log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
+            {
+                Timestamp received = now();
+
+                // extract send timestamp from first 8 bytes
+                uint64_t net_ts;
+                memcpy(&net_ts, msg.data.data(), 8);
+                Timestamp sent = ntohll(net_ts);
+
+                // actual payload is the rest
+                Command payload(msg.data.begin() + 8, msg.data.end());
+
+                int64_t latency = static_cast<int64_t>(received) - static_cast<int64_t>(sent);
+                cout << "[latency] seq=" << msg.get_sequence_number()
+                     << " latency=" << latency << " us"
+                     << " payload=" << command_to_string(payload) << endl;
+
+                log_.observe(msg.sender_id, msg.get_sequence_number(), payload, quorum());
+            }
 
             Message ack;
             ack.type = ACK;
             ack.sender_id = id();
             ack.seq_or_count = msg.seq_or_count;
-
             if (!NetworkUtils::send_message(server_sock, ack))
                 break;
         }

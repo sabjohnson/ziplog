@@ -50,4 +50,23 @@ namespace ziplog
     static constexpr uint32_t MAX_MESSAGE_SIZE = 65535; // 2 ^ 16... 2 bytes read in for message header on tcp connection
     static constexpr uint64_t EPOCH_DURATION = 1000;    // keep this at a multiple of 10
     static constexpr uint64_t MAX_EPOCH_HISTORY = 10;
+
+    // in common.h or types.h
+#ifndef htonll
+    inline uint64_t htonll(uint64_t value)
+    {
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        uint32_t high = htonl(static_cast<uint32_t>(value >> 32));
+        uint32_t low = htonl(static_cast<uint32_t>(value & 0xFFFFFFFF));
+        return (static_cast<uint64_t>(low) << 32) | high;
+#else
+        return value;
+#endif
+    }
+
+    inline uint64_t ntohll(uint64_t value)
+    {
+        return htonll(value);
+    }
+#endif
 }
