@@ -3,14 +3,14 @@
     "max_retries": 3,
     "max_epoch_history": 10,
     "epoch_duration_ns": 10,
-    "zipper": "compute16.fractus.cs.cornell.edu:8000",
+    "zipper": "128.84.139.10:8000",
     "proxies": [
-        "compute16.fractus.cs.cornell.edu:8010"
+        "128.84.139.10:8010"
     ],
     "servers": [
-        "compute17.fractus.cs.cornell.edu:8020"
+        "28.84.139.11:8020"
     ],
     "subscribers": [
-        "compute16.fractus.cs.cornell.edu"
+        "128.84.139.10:8030"
     ]
 }
