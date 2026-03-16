@@ -18,7 +18,7 @@ namespace ziplog::impl
         cout << "[handle_report] waiting for lock..." << endl;
         std::lock_guard<std::mutex> lock(registry_.mutex());
         cout << "[handle_report] got lock" << endl;
-        if (!registry_.exists(failed_proxy))
+        if (!registry_.exists_unlocked(failed_proxy))
             return;
 
         ProxyState &state = registry_.get(failed_proxy);
@@ -48,9 +48,10 @@ namespace ziplog::impl
         NodeId failed_proxy = msg.get_failed_proxy();
 
         cout << "[handle freeze respnose] waiting for lock..." << endl;
-        std::unique_lock<std::mutex> lock(registry_.mutex());
+        std::lock_guard<std::mutex> lock(registry_.mutex());
         cout << "[handle freeze response] got lock" << endl;
-        if (!registry_.exists(failed_proxy))
+
+        if (!registry_.exists_unlocked(failed_proxy))
             return;
 
         ProxyState &state = registry_.get(failed_proxy);
