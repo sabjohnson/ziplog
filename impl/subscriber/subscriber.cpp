@@ -30,12 +30,13 @@ namespace ziplog::impl
 
     Subscriber::~Subscriber()
     {
-        cout << "Subscriber " << id() << " shutdown() called" << endl;
+        ZLOG("Subscriber " << id() << " shutdown() called");
+        BaseNode::shutdown();
         connection_pool_.close_all();
         log_.print_expanded();
         log_.print_pending();
         log_.print_out_of_order();
-        cout << "Subscriber " << id() << " shutdown() complete" << endl;
+        ZLOG("Subscriber " << id() << " shutdown() complete");
     }
 
     void Subscriber::shutdown()
@@ -73,24 +74,40 @@ namespace ziplog::impl
             if (!NetworkUtils::recv_message(server_sock, msg))
                 break;
 
-            if (msg.type == APPEND || msg.type == SKIP)
+            if (msg.type == APPEND)
             {
                 Timestamp received = now();
+                vector<Command> commands = CommandBatch::deserialize(msg.data);
 
-                // extract send timestamp from first 8 bytes
-                uint64_t net_ts;
-                memcpy(&net_ts, msg.data.data(), 8);
-                Timestamp sent = ntohll(net_ts);
+                for (auto &command : commands)
+                {
+                    Command payload = command;
 
-                // actual payload is the rest
-                Command payload(msg.data.begin() + 8, msg.data.end());
-
-                int64_t latency = static_cast<int64_t>(received) - static_cast<int64_t>(sent);
-                cout << "[latency] seq=" << msg.get_sequence_number()
-                     << " latency=" << latency << " us"
-                     << " payload=" << command_to_string(payload) << endl;
-
-                log_.observe(msg.sender_id, msg.get_sequence_number(), payload, quorum());
+                    auto it = std::find(command.begin(), command.end(), '|');
+                    if (it != command.end())
+                    {
+                        string ts_str(command.begin(), it);
+                        if (!ts_str.empty() && std::all_of(ts_str.begin(), ts_str.end(), [](unsigned char c)
+                                                           { return std::isdigit(c); }))
+                        {
+                            Timestamp sent = std::stoull(ts_str); // stoull() converts string to unsigned long long
+                            payload = Command(it + 1, command.end());
+                            int64_t latency = static_cast<int64_t>(received) - static_cast<int64_t>(sent);
+                            cout << "[latency] seq=" << msg.get_sequence_number()
+                                 << " latency=" << latency << " " << EPOCH_DURATION_UNIT_STR
+                                 << " payload=" << command_to_string(payload) << endl;
+                        }
+                        else
+                        {
+                            cout << "[latency] bad ts_str: " << "-" << ts_str << "-" << endl;
+                        }
+                    }
+                }
+                log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
+            }
+            else if (msg.type == SKIP)
+            {
+                log_.observe(msg.sender_id, msg.get_sequence_number(), Command(), quorum());
             }
 
             Message ack;

@@ -26,36 +26,38 @@ namespace ziplog::impl
             snapshot = estimates_;
         }
 
-        cout << "[slot_allocator] waiting for lock..." << endl;
-        std::lock_guard<std::mutex> lock(registry_.mutex());
-        cout << "[slot_allocator] got lock" << endl;
-
         std::vector<std::pair<double, NodeId>> timestamps;
 
-        for (auto &[proxy_id, state] : registry_.all())
         {
-            cout << "proxy " << proxy_id << " status=" << (int)state.status << " estimate=" << (snapshot.count(proxy_id) ? snapshot.at(proxy_id) : 0) << endl;
+            // cout << "[slot_allocator] waiting for lock..." << endl;
+            std::lock_guard<std::mutex> lock(registry_.mutex());
+            // cout << "[slot_allocator] got lock" << endl;
 
-            if (state.status != ProxyStatus::ACTIVE)
+            for (auto &[proxy_id, state] : registry_.all())
             {
-                cout << "proxy not active skipping" << endl;
-                continue;
-            }
+                if (state.status != ProxyStatus::ACTIVE)
+                {
+                    // cout << "proxy " << proxy_id << " not active skipping" << endl;
+                    continue;
+                }
 
-            size_t estimate = snapshot.count(proxy_id) ? snapshot.at(proxy_id) : 0;
-            if (estimate == 0)
-            {
-                cout << "proxy doesnt want slots" << endl;
-                continue;
-            }
+                size_t estimate = snapshot.count(proxy_id) ? snapshot.at(proxy_id) : 0;
+                if (estimate == 0)
+                {
+                    // cout << "proxy doesnt want slots" << endl;
+                    continue;
+                }
 
-            double interval = static_cast<double>(epoch_duration_ms) / estimate;
-            double time_point = interval / 2.0;
+                ZLOG("[zipper] proxy " << proxy_id << " wants " << estimate << " slots");
 
-            for (size_t i = 0; i < estimate; i++)
-            {
-                timestamps.push_back({time_point, proxy_id});
-                time_point += interval;
+                double interval = static_cast<double>(epoch_duration_ms) / estimate;
+                double time_point = interval / 2.0;
+
+                for (size_t i = 0; i < estimate; i++)
+                {
+                    timestamps.push_back({time_point, proxy_id});
+                    time_point += interval;
+                }
             }
         }
 
@@ -70,7 +72,7 @@ namespace ziplog::impl
             registry_.get(proxy_id).allocated_sequences.push_back(seq);
         }
 
-        cout << "[zipper] compute_allocations() exited" << endl;
+        // cout << "[zipper] compute_allocations() exited" << endl;
         return result;
     }
 

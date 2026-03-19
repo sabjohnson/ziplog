@@ -15,10 +15,10 @@ namespace ziplog::impl
                                                                                                                       EpochDurationUnit(cfg.epoch_duration),
                                                                                                                       [this]()
                                                                                                                       { update_slot_estimate(); },
-                                                                                                                      [this]()
-                                                                                                                      { return slot_scheduler_.next_send(); },
-                                                                                                                      [this]()
-                                                                                                                      { send_out_batch(); })
+                                                                                                                      [this](Timestamp &ts, SequenceNumber &seq)
+                                                                                                                      { return slot_scheduler_.pop_next_slot(ts, seq); },
+                                                                                                                      [this](SequenceNumber seq)
+                                                                                                                      { send_out_batch(seq); })
     {
         replicator_.start();
         start_listening();
@@ -30,10 +30,10 @@ namespace ziplog::impl
                                                                                                                       EpochDurationUnit(cfg.epoch_duration),
                                                                                                                       [this]()
                                                                                                                       { update_slot_estimate(); },
-                                                                                                                      [this]()
-                                                                                                                      { return slot_scheduler_.next_send(); },
-                                                                                                                      [this]()
-                                                                                                                      { send_out_batch(); })
+                                                                                                                      [this](Timestamp &ts, SequenceNumber &seq)
+                                                                                                                      { return slot_scheduler_.pop_next_slot(ts, seq); },
+                                                                                                                      [this](SequenceNumber seq)
+                                                                                                                      { send_out_batch(seq); })
     {
         registered_ = registered;
         replicator_.start();
@@ -44,12 +44,12 @@ namespace ziplog::impl
 
     Proxy::~Proxy()
     {
-        cout << "Proxy " << id() << " shutdown() called" << endl;
+        ZLOG("Proxy " << id() << " shutdown() called");
         epoch_timer_.stop();
         BaseNode::shutdown();
         replicator_.shutdown();
         zipper_pool_.close_all();
-        cout << "Proxy " << id() << " shutdown() complete" << endl;
+        ZLOG("Proxy " << id() << " shutdown() complete");
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
@@ -73,11 +73,11 @@ namespace ziplog::impl
                     NetworkUtils::send_message(client_socket, resp);
                     continue;
                 }
-                cout << "[proxy " << id() << "] recv client req on socket " << client_socket << endl;
+                ZLOG("[proxy " << id() << "] recv client req on socket " << client_socket);
                 client_buffers_.push(client_socket, req.data);
                 slot_scheduler_.record_request();
-                cout << "[proxy " << id() << "] buffer size: "
-                     << client_buffers_.buffer_size(client_socket) << endl;
+                ZLOG("[proxy " << id() << "] buffer size: "
+                               << client_buffers_.buffer_size(client_socket));
             }
             else if (req.type == ZIP_RESPONSE)
                 handle_zip_response(req);
@@ -87,7 +87,7 @@ namespace ziplog::impl
                 {
                     registered_ = true;
                     epoch_timer_.start();
-                    cout << "[proxy " << id() << "] joined the system" << endl;
+                    ZLOG("[proxy " << id() << "] joined the system");
                 }
             }
             else if (req.type == FREEZE)
@@ -100,15 +100,16 @@ namespace ziplog::impl
 
         close(client_socket);
         client_buffers_.remove(client_socket);
-        cout << "[proxy " << id() << "] closed socket " << client_socket << endl;
+        ZLOG("[proxy " << id() << "] closed socket " << client_socket);
     }
 
     void Proxy::handle_zip_response(const Message &msg)
     {
         if (msg.shard_id != shard())
             return;
-        cout << "[proxy " << id() << "] got " << msg.get_num_requests() << " slots from zipper" << endl;
+        ZLOG("[proxy " << id() << "] got " << msg.get_num_requests() << " slots from zipper");
         slot_scheduler_.load_slots(msg.ordering_values);
+        ZLOG("[proxy " << id() << "] load slots returned");
     }
 
     void Proxy::attempt_join(bool is_new)
@@ -135,7 +136,6 @@ namespace ziplog::impl
     void Proxy::update_slot_estimate()
     {
         SequenceNumber estimate = slot_scheduler_.compute_estimate();
-        cout << "[proxy " << id() << "] sending estimate " << estimate << " to zipper" << endl;
 
         Message req;
         req.type = ZIP_REQUEST;
@@ -143,26 +143,26 @@ namespace ziplog::impl
         req.sender_id = id();
         req.set_num_requests(estimate);
 
+        if (estimate)
+        {
+            ZLOG("[proxy " << id() << "] sending estimate " << estimate << " to zipper");
+        }
+
         int sock = zipper_pool_.get_connection(config_.zipper);
         if (sock < 0)
         {
-            cout << "[proxy " << id() << "] could not reach zipper" << endl;
+            ZLOG("[proxy " << id() << "] could not reach zipper");
             return;
         }
         if (!NetworkUtils::send_message(sock, req))
-            cout << "[proxy " << id() << "] failed to send estimate to zipper" << endl;
+        {
+            ZLOG("[proxy " << id() << "] failed to send estimate to zipper");
+        }
     }
 
-    void Proxy::send_out_batch()
+    void Proxy::send_out_batch(SequenceNumber seq)
     {
-        SequenceNumber seq;
-        Timestamp send_time;
-        if (!slot_scheduler_.pop_next_slot(seq, send_time))
-        {
-            cout << "[proxy " << id() << "] no slots available" << endl;
-            return;
-        }
-        cout << "[proxy " << id() << "] send_out_batch() called" << endl;
+        ZLOG("[proxy " << id() << "] send_out_batch() called");
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();
@@ -185,9 +185,9 @@ namespace ziplog::impl
 
         Message resp;
         resp.type = success ? SUCCESS : FAILURE;
-        cout << "[proxy " << id() << "] replication "
-             << (success ? "succeeded" : "failed")
-             << " for seq " << seq << endl;
+        ZLOG("[proxy " << id() << "] replication "
+                       << (success ? "succeeded" : "failed")
+                       << " for seq " << seq);
 
         for (int client : participating)
         {

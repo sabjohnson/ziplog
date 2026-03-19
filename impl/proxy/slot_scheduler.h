@@ -62,7 +62,7 @@ namespace ziplog::impl
         }
 
         // returns {seq, send_time} and advances the deques. returns false if no slots.
-        bool pop_next_slot(SequenceNumber &seq_out, Timestamp &send_time_out)
+        bool pop_next_slot(Timestamp &send_time_out, SequenceNumber &seq_out)
         {
             std::lock_guard<std::mutex> lock(mu_);
             if (next_send_ == 0 || sequences_.empty())

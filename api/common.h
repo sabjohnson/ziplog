@@ -1,4 +1,5 @@
 #pragma once
+#include "logger.h"
 
 // libraries
 #include <string>
@@ -48,10 +49,10 @@ namespace ziplog
 
     // constants
     static constexpr uint32_t MAX_MESSAGE_SIZE = 65535; // 2 ^ 16... 2 bytes read in for message header on tcp connection
-    static constexpr uint64_t EPOCH_DURATION = 1000;    // keep this at a multiple of 10
-    static constexpr uint64_t MAX_EPOCH_HISTORY = 10;
+    static constexpr uint64_t EPOCH_DURATION = 1000;    // defaults to this value if config doesnt specify
+    static constexpr uint64_t MAX_EPOCH_HISTORY = 10;   // defaults to this value if config doesnt specify
 
-    // in common.h or types.h
+    // Define htonll/ntohll if not available (not standard on all platforms) - used in messages
 #ifndef htonll
     inline uint64_t htonll(uint64_t value)
     {

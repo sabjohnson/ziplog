@@ -34,7 +34,7 @@ namespace ziplog::impl
 
         // --- epoch callbacks (called by epoch_timer_) ---
         void update_slot_estimate();
-        void send_out_batch();
+        void send_out_batch(SequenceNumber seq);
 
         // --- message handling ---
         void handle_connection(int client_socket) override;

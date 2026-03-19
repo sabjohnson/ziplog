@@ -18,17 +18,17 @@ namespace ziplog::impl
     {
         broadcaster_.start(cfg.subscribers);
         start_listening();
-        liveness_.start(id());
+        // liveness_.start(id());
     }
 
     Server::~Server()
     {
-        std::cout << "Server " << id() << " shutdown() called" << std::endl;
+        ZLOG("Server " << id() << " shutdown() called");
         broadcaster_.shutdown();
-        liveness_.stop();
+        // liveness_.stop();
         BaseNode::shutdown();
         connection_pool_.close_all();
-        std::cout << "Server " << id() << " shutdown() complete" << std::endl;
+        ZLOG("Server " << id() << " shutdown() complete");
     }
 
     void Server::shutdown()

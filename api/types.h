@@ -12,8 +12,9 @@ namespace ziplog
         using NodeId = uint32_t;
         using SequenceNumber = uint64_t;
         using Command = vector<uint8_t>;
-        using EpochDurationUnit = nanoseconds;
-        using Timestamp = uint64_t; // changing to nanoseconds
+        using Timestamp = uint64_t;
+        using EpochDurationUnit = milliseconds; // updates the epoch duration unit in components
+        static constexpr const char *EPOCH_DURATION_UNIT_STR = "ns";
 
         inline Command string_to_command(const string &s)
         {

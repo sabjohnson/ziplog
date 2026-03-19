@@ -59,7 +59,7 @@ namespace ziplog::impl
                 auto &tq = proxy_timeouts_[proxy_id];
                 if (tq.size() < 2)
                 {
-                    std::cerr << "warning: proxy_timeouts_ too small for proxy size=" << tq.size() << std::endl;
+                    ZLOG("warning: proxy_timeouts_ too small for proxy size=" << tq.size());
                     return;
                 }
                 assert(tq.size() >= 2 && tq.size() % 2 == 0);
@@ -77,8 +77,9 @@ namespace ziplog::impl
         void block_proxy(NodeId proxy_id)
         {
             std::lock_guard<std::mutex> lock(mu_);
-            std::cout << "[liveness] fully blocking proxy " << proxy_id << std::endl;
+            ZLOG("[liveness] fully blocking proxy " << proxy_id);
             blocked_for_reconfiguration_[proxy_id] = true;
+            assert(false);
         }
 
         // called on INCLUDE_PROXY (rejoin) — clears reconfiguration state
@@ -137,11 +138,10 @@ namespace ziplog::impl
 
                     if (should_report)
                     {
-                        std::cout << "[liveness] reporting proxy " << id << std::endl;
-                        std::cout << "[liveness] current=" << current
-                                  << " timeout=" << proxy_timeouts_[id].front()
-                                  << " deadline=" << proxy_timeouts_[id].front() + lag_
-                                  << std::endl;
+                        ZLOG("[liveness] reporting proxy " << id);
+                        ZLOG("[liveness] current=" << current
+                                                   << " timeout=" << proxy_timeouts_[id].front()
+                                                   << " deadline=" << proxy_timeouts_[id].front() + lag_);
                         report(id);
                     }
                 }

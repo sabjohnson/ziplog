@@ -37,6 +37,7 @@ COMMON_HEADERS = \
 	include/base_node.h \
 	include/circular_buffer.h \
 	include/connection_pool.h \
+	include/logger.h \
 
 # Test information
 TEST_LIBS = -lgtest -lgtest_main -lpthread

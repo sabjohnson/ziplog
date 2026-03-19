@@ -12,40 +12,40 @@ namespace ziplog::impl
 
     void SlotAllocator::update_estimate(NodeId proxy_id, size_t num_requests)
     {
-        cout << "[update_estimate] waiting for lock..." << endl;
+        ZLOG("[update_estimate] waiting for lock...");
         std::lock_guard<std::mutex> lock(registry_.mutex());
-        cout << "[update_estimate] got lock" << endl;
+        ZLOG("[update_estimate] got lock");
         if (!registry_.exists_unlocked(proxy_id))
         {
-            cout << "zipper cant update estimate because proxy not registered" << endl;
+            ZLOG("zipper cant update estimate because proxy not registered");
             return;
         }
         registry_.get_unlocked(proxy_id).estimate = num_requests;
-        cout << "zipper update estimate exited" << endl;
+        ZLOG("zipper update estimate exited");
     }
 
     std::unordered_map<NodeId, std::vector<SequenceNumber>>
     SlotAllocator::compute_allocations(Timestamp next_epoch, Timestamp epoch_duration_ms)
     {
-        cout << "[slot_allocator] waiting for lock..." << endl;
+        ZLOG("[slot_allocator] waiting for lock...");
         std::lock_guard<std::mutex> lock(registry_.mutex());
-        cout << "[slot_allocator] got lock" << endl;
+        ZLOG("[slot_allocator] got lock");
 
         // build sorted timestamp list across all active proxies
         std::vector<std::pair<double, NodeId>> timestamps;
 
         for (auto &[proxy_id, state] : registry_.all())
         {
-            cout << "proxy " << proxy_id << " status=" << (int)state.status << " estimate=" << state.estimate << endl;
+            ZLOG("proxy " << proxy_id << " status=" << (int)state.status << " estimate=" << state.estimate);
 
             if (state.status != ProxyStatus::ACTIVE)
             {
-                cout << "proxy not active skipping" << endl;
+                ZLOG("proxy " << proxy_id << " not active skipping");
                 continue;
             }
             if (state.estimate == 0)
             {
-                cout << "proxy doesnt want slots" << endl;
+                ZLOG("proxy doesnt want slots");
                 continue;
             }
 
@@ -71,7 +71,7 @@ namespace ziplog::impl
             registry_.get(proxy_id).allocated_sequences.push_back(seq);
         }
 
-        cout << "[zipper] compute_allocations() exited" << endl;
+        ZLOG("[zipper] compute_allocations() exited");
         return result;
     }
 

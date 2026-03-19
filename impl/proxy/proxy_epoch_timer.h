@@ -16,9 +16,9 @@ namespace ziplog::impl
     public:
         ProxyEpochTimer(EpochDurationUnit epoch_duration,
                         std::function<void()> on_epoch_end,
-                        std::function<Timestamp()> next_batch_timestamp,
-                        std::function<void()> on_send_batch)
-            : epoch_duration_(epoch_duration.count()), on_epoch_end_(std::move(on_epoch_end)), next_batch_timestamp_(std::move(next_batch_timestamp)), on_send_batch_(std::move(on_send_batch)) {}
+                        std::function<bool(Timestamp &, SequenceNumber &)> next_batch_info,
+                        std::function<void(SequenceNumber)> on_send_batch)
+            : epoch_duration_(epoch_duration.count()), on_epoch_end_(std::move(on_epoch_end)), next_batch_info_(std::move(next_batch_info)), on_send_batch_(std::move(on_send_batch)) {}
 
         ~ProxyEpochTimer() { stop(); }
 
@@ -26,7 +26,7 @@ namespace ziplog::impl
         {
             running_ = true;
             thread_ = std::thread(&ProxyEpochTimer::run, this);
-            cout << "proxy epoch timer started" << endl;
+            ZLOG("proxy epoch timer started");
         }
 
         void stop()
@@ -42,8 +42,8 @@ namespace ziplog::impl
     private:
         Timestamp epoch_duration_;
         std::function<void()> on_epoch_end_;
-        std::function<Timestamp()> next_batch_timestamp_;
-        std::function<void()> on_send_batch_;
+        std::function<bool(Timestamp &, SequenceNumber &)> next_batch_info_;
+        std::function<void(SequenceNumber)> on_send_batch_;
 
         std::atomic<bool> running_{false};
         std::atomic<bool> paused_{false};
@@ -53,14 +53,24 @@ namespace ziplog::impl
         {
             auto epoch_end_tp = now_tp() + EpochDurationUnit(epoch_duration_);
 
+            bool outgoing_batch = false;
+            Timestamp batch_ts = 0;
+            SequenceNumber batch_seq = 0;
+
             while (running_)
             {
-                Timestamp next_batch_send = next_batch_timestamp_();
+                if (paused_)
+                {
+                    break;
+                    // TODO: change to wait on condition variable
+                }
 
                 // either sleep until batch is ready to be sent or the end of your epoch
-                if (next_batch_send != 0)
+                outgoing_batch = next_batch_info_(batch_ts, batch_seq);
+                if (outgoing_batch)
                 {
-                    auto batch_send_tp = timestamp_to_tp(next_batch_send);
+                    ZLOG("[proxy epoch timer] send out batch incoming: " << batch_ts);
+                    auto batch_send_tp = timestamp_to_tp(batch_ts);
                     std::this_thread::sleep_until(std::min(batch_send_tp, epoch_end_tp));
                 }
                 else
@@ -68,19 +78,15 @@ namespace ziplog::impl
                     std::this_thread::sleep_until(epoch_end_tp);
                 }
 
-                if (paused_)
-                    continue;
-
-                if (now_tp() >= epoch_end_tp)
+                if (outgoing_batch)
                 {
-                    on_epoch_end_();
-                    epoch_end_tp += EpochDurationUnit(epoch_duration_); // avoid drift
+                    std::thread([this, batch_seq]()
+                                { on_send_batch_(batch_seq); })
+                        .detach();
                 }
-                else
-                {
-                    std::thread(on_send_batch_).detach();
-                }
-                        }
+                on_epoch_end_();
+                epoch_end_tp += EpochDurationUnit(epoch_duration_); // avoid drift
+            }
         }
     };
 

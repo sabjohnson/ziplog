@@ -31,7 +31,7 @@ TEST_F(E2ETest, Setup1_SingleAppend)
     // verify the desired log entry has the correct contents
     vector<Command> output = subscribers[0]->log().expand_unraveled();
     vector<string> expected = {"amish donuts"};
-    verify_index_matches_expected(output, expected); // output commands, expected strings
+    verify_elements_match_expected(output, expected); // output commands, expected strings
 }
 
 // 3 clients concurrently sending a request to 1 proxy.

@@ -93,13 +93,13 @@ namespace ziplog
                 }
 
                 // store epoch duration
-                if (!j.contains("epoch_duration_ns") || !j["epoch_duration_ns"].is_number_integer())
+                if (!j.contains("epoch_duration") || !j["epoch_duration"].is_number_integer())
                 {
                     config.epoch_duration = EPOCH_DURATION;
                 }
                 else
                 {
-                    config.epoch_duration = j["epoch_duration_ns"];
+                    config.epoch_duration = j["epoch_duration"];
                 }
 
                 // validate/store zipper address

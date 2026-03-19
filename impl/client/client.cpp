@@ -24,10 +24,8 @@ namespace ziplog
             if (sock >= 0)
             {
                 Timestamp send_time = now();
-                Command data;
-                data.resize(8);
-                uint64_t net_ts = htonll(send_time);
-                memcpy(data.data(), &net_ts, 8);
+                string ts_prefix = std::to_string(send_time) + "|";
+                Command data(ts_prefix.begin(), ts_prefix.end());
                 data.insert(data.end(), payload.begin(), payload.end());
 
                 Message req;
@@ -37,7 +35,7 @@ namespace ziplog
                 if (!NetworkUtils::send_message(sock, req))
                 {
                     connection_pool_.close_connection(proxy_);
-                    cout << "client::append() failed to send message" << endl;
+                    cout << "client::append() failed to send message request to proxy" << endl;
                     return false;
                 }
 
@@ -45,14 +43,13 @@ namespace ziplog
                 if (!NetworkUtils::recv_message(sock, resp))
                 {
                     connection_pool_.close_connection(proxy_);
-                    cout << "client::append() failed to recv" << endl;
+                    cout << "client::append() failed to recv proxy response" << endl;
                     return false;
                 }
 
-                cout << "client::append() == success?" << endl;
                 return resp.type == SUCCESS;
             }
-            cout << "client::append() failed to connect" << endl;
+            cout << "client::append() failed to connect to proxy" << endl;
             return false;
         }
 

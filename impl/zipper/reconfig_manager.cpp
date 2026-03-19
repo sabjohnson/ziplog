@@ -13,11 +13,11 @@ namespace ziplog::impl
     void ReconfigManager::handle_report(const Message &msg)
     {
         NodeId failed_proxy = msg.get_failed_proxy();
-        std::cout << "[reconfig] received report for proxy " << failed_proxy << std::endl;
+        ZLOG("[reconfig] received report for proxy " << failed_proxy);
 
-        cout << "[handle_report] waiting for lock..." << endl;
+        ZLOG("[handle_report] waiting for lock...");
         std::lock_guard<std::mutex> lock(registry_.mutex());
-        cout << "[handle_report] got lock" << endl;
+        ZLOG("[handle_report] got lock");
         if (!registry_.exists_unlocked(failed_proxy))
             return;
 
@@ -47,9 +47,9 @@ namespace ziplog::impl
     {
         NodeId failed_proxy = msg.get_failed_proxy();
 
-        cout << "[handle freeze respnose] waiting for lock..." << endl;
+        ZLOG("[handle freeze respnose] waiting for lock...");
         std::unique_lock<std::mutex> lock(registry_.mutex());
-        cout << "[handle freeze response] got lock" << endl;
+        ZLOG("[handle freeze response] got lock");
 
         if (!registry_.exists_unlocked(failed_proxy))
             return;
@@ -78,7 +78,7 @@ namespace ziplog::impl
         }
         else
         {
-            std::cout << "[reconfig] no consensus on round " << round << ", retrying" << std::endl;
+            ZLOG("[reconfig] no consensus on round " << round << ", retrying");
             send_freeze(fp, false);
         }
     }
@@ -86,9 +86,9 @@ namespace ziplog::impl
     void ReconfigManager::send_freeze(NodeId failed_proxy, bool first_round)
     {
         {
-            cout << "[send freeze] waiting for lock..." << endl;
+            ZLOG("[send freeze] waiting for lock...");
             std::lock_guard<std::mutex> lock(registry_.mutex());
-            cout << "[send freeze] got lock" << endl;
+            ZLOG("[send freeze] got lock");
             ProxyState &state = registry_.get(failed_proxy);
             state.freeze_round = first_round ? 1 : state.freeze_round + 1;
             state.freeze_responders.clear();
@@ -101,23 +101,23 @@ namespace ziplog::impl
         freeze.set_failed_proxy(failed_proxy);
 
         {
-            cout << "[send freeze 1] waiting for lock..." << endl;
+            ZLOG("[send freeze 1] waiting for lock...");
             std::lock_guard<std::mutex> lock(registry_.mutex());
             freeze.set_round(registry_.get(failed_proxy).freeze_round);
-            cout << "[send freeze 1] got lock" << endl;
+            ZLOG("[send freeze 1] got lock");
         }
 
         broadcast_to_servers(freeze);
-        std::cout << "[reconfig] broadcasted FREEZE for proxy " << failed_proxy << std::endl;
+        ZLOG("[reconfig] broadcasted FREEZE for proxy " << failed_proxy);
     }
 
     void ReconfigManager::send_freeze_complete(NodeId failed_proxy, SequenceNumber last_seq)
     {
         std::vector<SequenceNumber> allocated;
         {
-            cout << "[send freeze complete] waiting for lock..." << endl;
+            ZLOG("[send freeze complete] waiting for lock...");
             std::lock_guard<std::mutex> lock(registry_.mutex());
-            cout << "[send freeze complete] got lock" << endl;
+            ZLOG("[send freeze complete] got lock");
             ProxyState &state = registry_.get(failed_proxy);
             state.status = ProxyStatus::BLOCKED;
             allocated = state.allocated_sequences;
@@ -161,7 +161,7 @@ namespace ziplog::impl
         fc.set_sequence_number(last_seq);
         broadcast_to_servers(fc);
 
-        std::cout << "[reconfig] freeze complete for proxy " << failed_proxy << std::endl;
+        ZLOG("[reconfig] freeze complete for proxy " << failed_proxy);
     }
 
     void ReconfigManager::broadcast_to_servers(const Message &msg)

@@ -33,21 +33,21 @@ namespace ziplog::impl
 
         void stop()
         {
-            cout << "stop epoch timer called" << endl;
+            ZLOG("stop epoch timer called");
             {
                 std::lock_guard<std::mutex> lock(work_mu_);
                 running_ = false;
             }
-            cout << "stop epoch timer running = false" << endl;
+            ZLOG("stop epoch timer running = false");
             cv_.notify_all();
-            cout << "stop epoch timer cv notified" << endl;
+            ZLOG("stop epoch timer cv notified");
             if (timer_thread_.joinable())
                 timer_thread_.join();
-            cout << "stop epoch timer joined 1" << endl;
+            ZLOG("stop epoch timer joined 1");
             if (worker_thread_.joinable())
                 worker_thread_.join();
-            cout << "stop epoch timer joined 2" << endl;
-            cout << "stop epoch timer complete" << endl;
+            ZLOG("stop epoch timer joined 2");
+            ZLOG("stop epoch timer complete");
         }
 
         Timestamp next_epoch() const { return next_epoch_; }
@@ -79,7 +79,6 @@ namespace ziplog::impl
             while (running_)
             {
                 // interruptable sleep (allocation time or notify)
-                cout << "[timer] before first wait" << endl;
                 {
                     std::unique_lock<std::mutex> lock(work_mu_);
                     cv_.wait_until(lock,
@@ -87,19 +86,15 @@ namespace ziplog::impl
                                    [this]
                                    { return !running_; });
                 }
-                cout << "[timer] after first wait" << endl;
                 if (!running_)
                     break;
 
-                cout << "[timer] on_allocate_ called" << endl;
                 {
                     std::lock_guard<std::mutex> lock(work_mu_);
                     allocate_pending_ = true;
                 }
                 cv_.notify_one();
-                cout << "[timer] on_allocate_ returned" << endl;
 
-                cout << "[timer] before second wait" << endl;
                 {
                     std::unique_lock<std::mutex> lock(work_mu_);
                     cv_.wait_until(lock,
@@ -107,7 +102,6 @@ namespace ziplog::impl
                                    [this]
                                    { return !running_; });
                 }
-                cout << "[timer] after second wait" << endl;
                 if (!running_)
                     break;
 
@@ -136,17 +130,13 @@ namespace ziplog::impl
                 {
                     allocate_pending_ = false;
                     lock.unlock();
-                    cout << "[work loop] on allocate called" << endl;
                     on_allocate_();
-                    cout << "[work loop] on allocate returned" << endl;
                 }
                 else if (epoch_end_pending_)
                 {
                     epoch_end_pending_ = false;
                     lock.unlock();
-                    cout << "[work loop] on epoch end called" << endl;
                     on_epoch_end_();
-                    cout << "[work loop] on epoch end returned" << endl;
                 }
             }
         }
