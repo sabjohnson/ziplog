@@ -14,7 +14,7 @@ namespace ziplog
         using Command = vector<uint8_t>;
         using Timestamp = uint64_t;
         using EpochDurationUnit = milliseconds; // updates the epoch duration unit in components
-        static constexpr const char *EPOCH_DURATION_UNIT_STR = "ns";
+        static constexpr const char *EPOCH_DURATION_UNIT_STR = "ms";
 
         inline Command string_to_command(const string &s)
         {
