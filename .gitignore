@@ -12,6 +12,7 @@
 !impl/**
 !tests/
 !tests/**
+!docu/
 
 # Keep specific files in root
 !Makefile
