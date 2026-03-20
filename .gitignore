@@ -13,6 +13,7 @@
 !tests/
 !tests/**
 !docu/
+!docu/**
 
 # Keep specific files in root
 !Makefile
