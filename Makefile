@@ -40,7 +40,9 @@ COMMON_HEADERS = \
 	include/logger.h \
 
 # Test information
-TEST_LIBS = -lgtest -lgtest_main -lpthread
+GTEST_DIR = third_party/gtest_install
+TEST_LIBS = $(GTEST_DIR)/lib/libgtest.a $(GTEST_DIR)/lib/libgtest_main.a -lpthread
+INCLUDES = -I. -Iapi -Iinclude -Iimpl -Ithird_party -I$(GTEST_DIR)/include
 TEST_RUNNER = test_runner
 
 # Link flags - ADD -fsanitize=address here too
