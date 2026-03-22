@@ -166,7 +166,6 @@ namespace ziplog::impl
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();
-        msg.set_sequence_number(seq);
 
         auto [batch, participating] = client_buffers_.drain_batch();
 
@@ -181,7 +180,8 @@ namespace ziplog::impl
             msg.data = batch.serialize();
         }
 
-        bool success = replicator_.replicate(msg);
+        msg.set_sequence_number(seq);
+	bool success = replicator_.replicate(msg);
 
         Message resp;
         resp.type = success ? SUCCESS : FAILURE;
