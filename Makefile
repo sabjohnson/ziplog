@@ -64,11 +64,11 @@ $(OBJ_DIR)/%.o: %.cpp $(COMMON_HEADERS) | check_json
 TEST_SOURCES = $(wildcard tests/*.cpp)
 TEST_OBJS = $(patsubst tests/%.cpp,$(OBJ_DIR)/tests/%.o,$(TEST_SOURCES))
 
-$(OBJ_DIR)/tests/%.o: tests/%.cpp $(COMMON_HEADERS) | check_json
+$(OBJ_DIR)/tests/%.o: tests/%.cpp $(COMMON_HEADERS) | check_json check_gtest
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-test_build: $(TEST_OBJECTS) $(TEST_OBJS) | check_json
+test_build: $(TEST_OBJECTS) $(TEST_OBJS) | check_json check_gtest
 	$(CXX) $(CXXFLAGS) $(TEST_OBJS) $(TEST_OBJECTS) -o $(TEST_RUNNER) $(TEST_LIBS)
 
 # Build and run test target
@@ -91,6 +91,20 @@ download_json:
 	mkdir -p third_party
 	curl -L https://github.com/nlohmann/json/releases/download/v3.11.2/json.hpp -o $(JSON_HEADER)
 
+check_gtest:
+	@if [ ! -f $(GTEST_DIR)/lib/libgtest.a ]; then \
+		echo "Building GoogleTest..."; \
+		mkdir -p third_party/googletest && \
+		cd third_party/googletest && \
+		wget -q https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz && \
+		tar -xzf v1.14.0.tar.gz && \
+		cd googletest-1.14.0 && \
+		cmake -DCMAKE_INSTALL_PREFIX=$(CURDIR)/third_party/gtest_install . && \
+		make && \
+		make install && \
+		echo "GoogleTest installed."; \
+	fi
+
 # Clean ---------------------------------------------------------
 
 # Just remove obj directory and executable
@@ -101,4 +115,4 @@ clean:
 external_clean: clean
 	rm -rf third_party/
 
-.PHONY: clean external_clean test test_build check_json download_json
+.PHONY: clean external_clean test test_build check_json download_json check_gtest
