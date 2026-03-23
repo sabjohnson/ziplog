@@ -77,6 +77,8 @@ namespace ziplog::impl
             if (msg.type == APPEND)
             {
                 Timestamp received = now();
+                // cout << "[subscriber] recv msg at " << std::to_string(now()) << endl;
+
                 vector<Command> commands = CommandBatch::deserialize(msg.data);
 
                 for (auto &command : commands)

@@ -1,5 +1,6 @@
 #include "network_utils.h"
 #include <sys/socket.h>
+#include <netinet/tcp.h>
 
 namespace ziplog
 {
@@ -81,6 +82,8 @@ namespace ziplog
                 return false;
             }
 
+            Timestamp start = now();
+
             // send size of serialized message
             uint16_t msg_len = htons(static_cast<uint16_t>(serialized.size()));
             if (!send_bytes(socket, &msg_len, 2))
@@ -91,7 +94,14 @@ namespace ziplog
             // cout << "send_message() sending " << msg_len << " bytes on socket " << socket << endl;
             // cout << "send_bytes() exitting" << endl;
             //  send message
-            return send_bytes(socket, serialized.data(), serialized.size());
+            bool result = send_bytes(socket, serialized.data(), serialized.size());
+            Timestamp end = now();
+
+            if (end - start > 10)
+            {
+                // cout << "[slow send] duration ---------------- " << end - start << endl;
+            }
+            return result;
         }
 
         // sending specified number of bytes from a pointer to a socket
@@ -118,6 +128,7 @@ namespace ziplog
         // reads size header and struct from a connection and deserializes into a message struct
         bool NetworkUtils::recv_message(int socket, Message &msg)
         {
+            Timestamp start = now();
             // read 2-byte length prefix
             uint16_t msg_len;
             if (!recv_bytes(socket, &msg_len, 2))
@@ -150,6 +161,11 @@ namespace ziplog
                 return false;
             }
 
+            Timestamp end = now();
+            if (end - start > 10)
+            {
+                // cout << "[slow recv] duration ---------------- " << end - start << endl;
+            }
             msg = *opt_msg;
             return true;
         }
@@ -186,6 +202,9 @@ namespace ziplog
             if (sockfd < 0)
                 return -1;
 
+            int flag = 1;
+            setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
+
             return sockfd;
         }
 
@@ -209,6 +228,9 @@ namespace ziplog
             int sockfd = socket(AF_INET, SOCK_STREAM, 0);
             if (sockfd < 0)
                 return -1;
+
+            int flag = 1;
+            setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
             if (reuse_addr)
             {

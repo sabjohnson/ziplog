@@ -132,6 +132,7 @@ namespace ziplog::impl
         }
 
         int sock = connection_pool_.get_connection(proxy);
+        // cout << "[zipper] sending out slots to proxy " << proxy_id << " at " << std::to_string(now()) << endl;
         if (sock >= 0 && !NetworkUtils::send_message(sock, resp))
         {
             connection_pool_.close_connection(proxy);
@@ -140,6 +141,7 @@ namespace ziplog::impl
         else
         {
             ZLOG("[zipper] sent to proxy");
+            // cout << "[zipper] done sending slots to proxy " << proxy_id << " at " << std::to_string(now()) << endl;
         }
 
         // forward to all servers

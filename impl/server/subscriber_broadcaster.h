@@ -47,6 +47,10 @@ namespace ziplog::impl
         void broadcast(const Message &msg)
         {
             std::lock_guard<std::mutex> lock(mu_);
+            if (msg.type == APPEND)
+            {
+                // cout << "[server *] broadcast called at " << std::to_string(now()) << endl;
+            }
             for (auto &[idx, worker] : workers_)
             {
                 {
@@ -54,6 +58,10 @@ namespace ziplog::impl
                     worker->queue.push(msg);
                 }
                 worker->cv.notify_one();
+            }
+            if (msg.type == APPEND)
+            {
+                // cout << "[server *] broadcast placed work at " << std::to_string(now()) << endl;
             }
         }
 
@@ -106,6 +114,11 @@ namespace ziplog::impl
                 int sock = pool_.get_connection(worker.address);
                 if (sock < 0)
                     break;
+
+                if (msg.type == APPEND)
+                {
+                    // cout << "[server] broadcaster sending at " << std::to_string(now()) << endl;
+                }
 
                 if (NetworkUtils::send_message(sock, msg))
                 {

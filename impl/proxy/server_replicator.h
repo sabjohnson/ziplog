@@ -54,6 +54,10 @@ namespace ziplog::impl
         // blocks until f+1 acks received
         bool replicate(Message &msg)
         {
+            if (msg.type == APPEND)
+            {
+                // cout << "[proxy] replicate called at " << std::to_string(now()) << endl;
+            }
             auto state = std::make_shared<ReplicationState>();
             state->seq = msg.get_sequence_number();
 
@@ -67,6 +71,11 @@ namespace ziplog::impl
                     }
                     worker->cv.notify_one();
                 }
+            }
+
+            if (msg.type == APPEND)
+            {
+                // cout << "[proxy] replicate placed work at " << std::to_string(now()) << endl;
             }
 
             // wait for quorum acks
@@ -129,6 +138,11 @@ namespace ziplog::impl
                     worker.pending_queue.pop();
                 }
 
+                if (item.msg.type == APPEND)
+                {
+                    // cout << "[proxy worker] sending at " << std::to_string(now()) << endl;
+                }
+
                 // send and wait for ack on persistent connection
                 bool ok = NetworkUtils::send_message(worker.socket, item.msg);
                 if (ok)
@@ -141,6 +155,11 @@ namespace ziplog::impl
                 {
                     worker.shutdown = true;
                     break;
+                }
+
+                if (item.msg.type == APPEND)
+                {
+                    // cout << "[proxy worker] recv ack " << std::to_string(now()) << endl;
                 }
 
                 // signal quorum waiter

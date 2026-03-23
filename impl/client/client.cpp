@@ -24,6 +24,8 @@ namespace ziplog
             if (sock >= 0)
             {
                 Timestamp send_time = now();
+                cout << "[client] sending request at " << std::to_string(send_time) << std::endl;
+
                 string ts_prefix = std::to_string(send_time) + "|";
                 Command data(ts_prefix.begin(), ts_prefix.end());
                 data.insert(data.end(), payload.begin(), payload.end());

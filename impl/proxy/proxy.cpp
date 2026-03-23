@@ -108,6 +108,7 @@ namespace ziplog::impl
         if (msg.shard_id != shard())
             return;
         ZLOG("[proxy " << id() << "] got " << msg.get_num_requests() << " slots from zipper");
+        // cout << "[proxy " << id() << "] got slots from zipper at " << std::to_string(now()) << endl;
         slot_scheduler_.load_slots(msg.ordering_values);
         ZLOG("[proxy " << id() << "] load slots returned");
     }
@@ -178,10 +179,12 @@ namespace ziplog::impl
         {
             msg.type = APPEND;
             msg.data = batch.serialize();
+            Timestamp send_time = now();
+            // cout << "[proxy " << id() << "] sending batch out at " << std::to_string(send_time) << std::endl;
         }
 
         msg.set_sequence_number(seq);
-	bool success = replicator_.replicate(msg);
+        bool success = replicator_.replicate(msg);
 
         Message resp;
         resp.type = success ? SUCCESS : FAILURE;

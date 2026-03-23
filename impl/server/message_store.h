@@ -18,6 +18,11 @@ namespace ziplog::impl
         {
             std::lock_guard<std::mutex> lock(mu_);
             messages_[proxy_id].push_back(msg);
+            if (msg.type == APPEND)
+            {
+                Timestamp send_time = now();
+                // cout << "[server *] msg " << msg.get_sequence_number() << " stored at " << std::to_string(send_time) << std::endl;
+            }
         }
 
         // returns a snapshot copy of all messages for a proxy

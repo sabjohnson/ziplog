@@ -46,6 +46,11 @@ namespace ziplog::impl
 
             if (msg.type == APPEND || msg.type == SKIP)
             {
+                if (msg.type == APPEND)
+                {
+                    // cout << "[server " << id() << "] got batch at " << std::to_string(now()) << std::endl;
+                }
+
                 if (!liveness_.is_blocked(msg.sender_id))
                 {
                     store_.store(msg.sender_id, msg);
