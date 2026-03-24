@@ -146,9 +146,40 @@ namespace ziplog::impl
         // called with mu_ already held
         void apply_locked(SequenceNumber seq, const Command &data)
         {
+            Timestamp received = now();
+
             out_of_order_[seq] = data;
             while (out_of_order_.count(next_seq_))
             {
+                // start perf prints
+                vector<Command> commands = CommandBatch::deserialize(out_of_order_[next_seq_]);
+
+                for (auto &command : commands)
+                {
+                    Command payload = command;
+
+                    auto it = std::find(command.begin(), command.end(), '|');
+                    if (it != command.end())
+                    {
+                        string ts_str(command.begin(), it);
+                        if (!ts_str.empty() && std::all_of(ts_str.begin(), ts_str.end(), [](unsigned char c)
+                                                           { return std::isdigit(c); }))
+                        {
+                            Timestamp sent = std::stoull(ts_str); // stoull() converts string to unsigned long long
+                            payload = Command(it + 1, command.end());
+                            int64_t latency = static_cast<int64_t>(received) - static_cast<int64_t>(sent);
+                            cout << "[latency] seq=" << next_seq_
+                                 << " latency=" << latency << " " << EPOCH_DURATION_UNIT_STR
+                                 << " payload=" << command_to_string(payload) << endl;
+                        }
+                        else
+                        {
+                            cout << "[latency] bad ts_str: " << "-" << ts_str << "-" << endl;
+                        }
+                    }
+                }
+                // end
+
                 log_.push_back(out_of_order_[next_seq_]);
                 out_of_order_.erase(next_seq_);
                 next_seq_++;
