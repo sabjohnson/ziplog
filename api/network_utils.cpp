@@ -1,6 +1,7 @@
 #include "network_utils.h"
 #include <sys/socket.h>
 #include <netinet/tcp.h>
+#include <sys/uio.h>
 
 namespace ziplog
 {

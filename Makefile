@@ -1,6 +1,7 @@
 # Compiler settings
 CXX = g++
-CXXFLAGS=-std=c++17 -Wall -Wextra -g -fsanitize=address -fno-omit-frame-pointer
+#CXXFLAGS=-std=c++17 -Wall -Wextra -g -fsanitize=address -fno-omit-frame-pointer
+CXXFLAGS=-std=c++17 -Wall -Wextra -g
 
 INCLUDES = -I. -Iapi -Iinclude -Iimpl -Ithird_party
 
