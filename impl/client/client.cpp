@@ -23,6 +23,8 @@ namespace ziplog
             int sock = connection_pool_.get_connection(proxy_);
             if (sock >= 0)
             {
+                auto start = high_resolution_clock::now();
+
                 Timestamp send_time = now();
                 cout << "[client] sending request at " << std::to_string(send_time) << std::endl;
 
@@ -34,13 +36,16 @@ namespace ziplog
                 req.type = APPEND;
                 req.data = data;
 
+                auto send_start = high_resolution_clock::now();
                 if (!NetworkUtils::send_message(sock, req))
                 {
                     connection_pool_.close_connection(proxy_);
                     cout << "client::append() failed to send message request to proxy" << endl;
                     return false;
                 }
+                auto send_end = high_resolution_clock::now();
 
+                auto recv_start = high_resolution_clock::now();
                 Message resp;
                 if (!NetworkUtils::recv_message(sock, resp))
                 {
@@ -48,6 +53,16 @@ namespace ziplog
                     cout << "client::append() failed to recv proxy response" << endl;
                     return false;
                 }
+                auto recv_end = high_resolution_clock::now();
+                auto end = high_resolution_clock::now();
+
+                auto send_dur = duration_cast<microseconds>(send_end - send_start);
+                auto recv_dur =duration_cast<microseconds>(recv_end - recv_start);
+                auto dur = duration_cast<microseconds>(end - start);
+
+                cout << "Client send latency: " << send_dur.count() << " us\n";
+                cout << "Client recv latency: " << recv_dur.count() << " us\n";
+                cout << "Client total latency: " << dur.count() << " us\n";
 
                 return resp.type == SUCCESS;
             }

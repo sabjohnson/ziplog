@@ -66,6 +66,7 @@ namespace ziplog::impl
 
             if (req.type == APPEND)
             {
+                auto start = high_resolution_clock::now();
                 if (!registered_)
                 {
                     Message resp;
@@ -78,6 +79,10 @@ namespace ziplog::impl
                 slot_scheduler_.record_request();
                 ZLOG("[proxy " << id() << "] buffer size: "
                                << client_buffers_.buffer_size(client_socket));
+                auto end = high_resolution_clock::now();
+                
+                auto dur = duration_cast<microseconds>(end - start);
+                cout << "Proxy total latency: " << dur.count() << " us\n";
             }
             else if (req.type == ZIP_RESPONSE)
                 handle_zip_response(req);

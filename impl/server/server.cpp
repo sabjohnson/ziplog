@@ -46,6 +46,7 @@ namespace ziplog::impl
 
             if (msg.type == APPEND || msg.type == SKIP)
             {
+                auto start = high_resolution_clock::now();
                 if (msg.type == APPEND)
                 {
                     // cout << "[server " << id() << "] got batch at " << std::to_string(now()) << std::endl;
@@ -64,6 +65,10 @@ namespace ziplog::impl
                 ack.sender_id = id();
                 ack.set_sequence_number(msg.get_sequence_number());
                 NetworkUtils::send_message(proxy_socket, ack);
+                auto end = high_resolution_clock::now();
+                
+                auto dur = duration_cast<microseconds>(end - start);
+                cout << "Server total latency: " << dur.count() << " us\n";
             }
             else if (msg.type == ZIP_RESPONSE)
             {

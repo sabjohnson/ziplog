@@ -115,6 +115,8 @@ namespace ziplog::impl
                 if (sock < 0)
                     break;
 
+                auto start = high_resolution_clock::now();
+
                 if (msg.type == APPEND)
                 {
                     // cout << "[server] broadcaster sending at " << std::to_string(now()) << endl;
@@ -125,6 +127,10 @@ namespace ziplog::impl
                     Message ack;
                     NetworkUtils::recv_message(sock, ack);
                 }
+                auto end = high_resolution_clock::now();
+                
+                auto dur = duration_cast<microseconds>(end - start);
+                cout << "Server broadcast latency: " << dur.count() << " us\n";
             }
         }
 

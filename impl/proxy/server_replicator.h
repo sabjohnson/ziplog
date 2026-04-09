@@ -138,6 +138,8 @@ namespace ziplog::impl
                     worker.pending_queue.pop();
                 }
 
+                auto start = high_resolution_clock::now();
+
                 if (item.msg.type == APPEND)
                 {
                     // cout << "[proxy worker] sending at " << std::to_string(now()) << endl;
@@ -169,6 +171,11 @@ namespace ziplog::impl
                     item.state->ack_count++;
                     item.state->cv.notify_one();
                 }
+
+                auto end = high_resolution_clock::now();
+                
+                auto dur = duration_cast<microseconds>(end - start);
+                cout << "Proxy replicate total latency: " << dur.count() << " us\n";
             }
             close(worker.socket);
         }

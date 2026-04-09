@@ -52,6 +52,8 @@ namespace ziplog::impl
             if (!NetworkUtils::recv_message(server_sock, msg))
                 break;
 
+            auto start = high_resolution_clock::now();
+            
             if (msg.type == APPEND)
             {
                 log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
@@ -67,6 +69,11 @@ namespace ziplog::impl
             ack.seq_or_count = msg.seq_or_count;
             if (!NetworkUtils::send_message(server_sock, ack))
                 break;
+
+            auto end = high_resolution_clock::now();
+                
+            auto dur = duration_cast<microseconds>(end - start);
+            cout << "Subscriber total latency: " << dur.count() << " us\n";
         }
         close(server_sock);
     }
