@@ -56,13 +56,13 @@ namespace ziplog
                 auto recv_end = high_resolution_clock::now();
                 auto end = high_resolution_clock::now();
 
-                auto send_dur = duration_cast<microseconds>(send_end - send_start);
-                auto recv_dur =duration_cast<microseconds>(recv_end - recv_start);
-                auto dur = duration_cast<microseconds>(end - start);
+                auto send_dur = duration_cast<EpochDurationUnit>(send_end - send_start);
+                auto recv_dur = duration_cast<EpochDurationUnit>(recv_end - recv_start);
+                auto dur = duration_cast<EpochDurationUnit>(end - start);
 
-                cout << "Client send latency: " << send_dur.count() << " us\n";
-                cout << "Client recv latency: " << recv_dur.count() << " us\n";
-                cout << "Client total latency: " << dur.count() << " us\n";
+                cout << "Client send latency: " << send_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                cout << "Client recv latency: " << recv_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                cout << "Client total latency: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
 
                 return resp.type == SUCCESS;
             }

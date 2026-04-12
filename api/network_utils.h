@@ -46,6 +46,7 @@ namespace ziplog
                 @return: true on success in writing size header and serialized struct to file descriptor
             */
             static bool send_message(int socket, const Message &msg);
+            static bool send_message_og(int socket, const Message &msg);
 
             /*
                  @param: file descriptor to write to, bytes of serialized data, the size of serialized data

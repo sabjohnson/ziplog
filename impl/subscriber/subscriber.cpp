@@ -53,7 +53,7 @@ namespace ziplog::impl
                 break;
 
             auto start = high_resolution_clock::now();
-            
+
             if (msg.type == APPEND)
             {
                 log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
@@ -71,9 +71,8 @@ namespace ziplog::impl
                 break;
 
             auto end = high_resolution_clock::now();
-                
-            auto dur = duration_cast<microseconds>(end - start);
-            cout << "Subscriber total latency: " << dur.count() << " us\n";
+            auto dur = duration_cast<EpochDurationUnit>(end - start);
+            cout << "Subscriber total latency: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
         close(server_sock);
     }

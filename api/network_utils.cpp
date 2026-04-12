@@ -74,6 +74,27 @@ namespace ziplog
         // serializes messages, send size header and bytes of struct over a socket
         bool NetworkUtils::send_message(int socket, const Message &msg)
         {
+            auto serialized = msg.serialize();
+            if (serialized.empty())
+            {
+                ZLOG("Rejecting send of oversized message");
+                return false;
+            }
+
+            uint16_t msg_len = htons(static_cast<uint16_t>(serialized.size()));
+
+            struct iovec iov[2];
+            iov[0].iov_base = &msg_len;
+            iov[0].iov_len = 2;
+            iov[1].iov_base = const_cast<uint8_t *>(serialized.data());
+            iov[1].iov_len = serialized.size();
+
+            ssize_t expected = 2 + static_cast<ssize_t>(serialized.size());
+            return writev(socket, iov, 2) == expected;
+        }
+
+        bool NetworkUtils::send_message_og(int socket, const Message &msg)
+        {
             // cout << "send_message() called" << endl;
             //  attempt to serialize message
             auto serialized = msg.serialize();

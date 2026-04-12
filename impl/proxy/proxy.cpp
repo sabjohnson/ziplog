@@ -75,14 +75,21 @@ namespace ziplog::impl
                     continue;
                 }
                 ZLOG("[proxy " << id() << "] recv client req on socket " << client_socket);
+
                 client_buffers_.push(client_socket, req.data);
+                auto client_buffers_end = high_resolution_clock::now();
+
                 slot_scheduler_.record_request();
+                auto slot_sched_end = high_resolution_clock::now();
+
                 ZLOG("[proxy " << id() << "] buffer size: "
                                << client_buffers_.buffer_size(client_socket));
-                auto end = high_resolution_clock::now();
-                
-                auto dur = duration_cast<microseconds>(end - start);
-                cout << "Proxy total latency: " << dur.count() << " us\n";
+
+                auto dur1 = duration_cast<EpochDurationUnit>(client_buffers_end - start);
+                auto dur2 = duration_cast<EpochDurationUnit>(slot_sched_end - start);
+
+                cout << "Proxy client buffer - push: " << dur1.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                cout << "Proxy slot scheduler - record request: " << dur2.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
             }
             else if (req.type == ZIP_RESPONSE)
                 handle_zip_response(req);
@@ -112,10 +119,18 @@ namespace ziplog::impl
     {
         if (msg.shard_id != shard())
             return;
+
         ZLOG("[proxy " << id() << "] got " << msg.get_num_requests() << " slots from zipper");
+        auto start = high_resolution_clock::now();
+
         // cout << "[proxy " << id() << "] got slots from zipper at " << std::to_string(now()) << endl;
         slot_scheduler_.load_slots(msg.ordering_values);
+
         ZLOG("[proxy " << id() << "] load slots returned");
+        auto end = high_resolution_clock::now();
+
+        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        cout << "Proxy load zipper slots: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 
     void Proxy::attempt_join(bool is_new)
@@ -141,6 +156,8 @@ namespace ziplog::impl
 
     void Proxy::update_slot_estimate()
     {
+        auto start = high_resolution_clock::now();
+
         SequenceNumber estimate = slot_scheduler_.compute_estimate();
 
         Message req;
@@ -164,10 +181,14 @@ namespace ziplog::impl
         {
             ZLOG("[proxy " << id() << "] failed to send estimate to zipper");
         }
+        auto end = high_resolution_clock::now();
+        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        cout << "Proxy update slot estimate(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 
     void Proxy::send_out_batch(SequenceNumber seq)
     {
+        auto start = high_resolution_clock::now();
         ZLOG("[proxy " << id() << "] send_out_batch() called");
         Message msg;
         msg.shard_id = shard();
@@ -201,5 +222,8 @@ namespace ziplog::impl
         {
             NetworkUtils::send_message(client, resp);
         }
+        auto end = high_resolution_clock::now();
+        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        cout << "Proxy send out batch(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 } // namespace ziplog::impl
