@@ -52,13 +52,6 @@ namespace ziplog::impl
                     // cout << "[server " << id() << "] got batch at " << std::to_string(now()) << std::endl;
                 }
 
-                if (!liveness_.is_blocked(msg.sender_id))
-                {
-                    store_.store(msg.sender_id, msg);
-                    liveness_.remove_timeout(msg.sender_id, msg.get_sequence_number());
-                    broadcaster_.broadcast(msg);
-                }
-
                 Message ack;
                 ack.type = ACK;
                 ack.shard_id = shard();
@@ -66,9 +59,16 @@ namespace ziplog::impl
                 ack.set_sequence_number(msg.get_sequence_number());
                 NetworkUtils::send_message(proxy_socket, ack);
                 auto end = high_resolution_clock::now();
-                
+
                 auto dur = duration_cast<microseconds>(end - start);
-                cout << "Server total latency: " << dur.count() << " us\n";
+                cout << "Server ack latency: " << dur.count() << " us\n";
+
+                if (!liveness_.is_blocked(msg.sender_id))
+                {
+                    store_.store(msg.sender_id, msg);
+                    liveness_.remove_timeout(msg.sender_id, msg.get_sequence_number());
+                    broadcaster_.broadcast(msg);
+                }
             }
             else if (msg.type == ZIP_RESPONSE)
             {
