@@ -186,7 +186,7 @@ namespace ziplog::impl
 
         if (estimate)
         {
-            cout << "Proxy update slot estimate(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            cout << "Proxy update slot estimate() = " << estimate << ": " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
     }
 

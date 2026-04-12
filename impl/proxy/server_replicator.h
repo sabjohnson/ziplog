@@ -61,6 +61,8 @@ namespace ziplog::impl
             auto state = std::make_shared<ReplicationState>();
             state->seq = msg.get_sequence_number();
 
+            auto t0 = high_resolution_clock::now();
+
             {
                 std::lock_guard<std::mutex> lock(mu_);
                 for (auto &[idx, worker] : server_workers_)
@@ -73,6 +75,8 @@ namespace ziplog::impl
                 }
             }
 
+            auto t1 = high_resolution_clock::now(); // work enqued
+
             if (msg.type == APPEND)
             {
                 // cout << "[proxy] replicate placed work at " << std::to_string(now()) << endl;
@@ -82,6 +86,17 @@ namespace ziplog::impl
             std::unique_lock<std::mutex> lock(state->mu);
             state->cv.wait(lock, [&]()
                            { return state->ack_count >= static_cast<int>(quorum_); });
+
+            auto t2 = high_resolution_clock::now(); // quorum reached
+
+            if (msg.type == APPEND)
+            {
+                auto enqueue = duration_cast<microseconds>(t1 - t0).count();
+                auto wait = duration_cast<microseconds>(t2 - t1).count();
+                cout << "[replicate()] enqueue=" << enqueue << "µs"
+                     << " quorum_wait=" << wait << "µs"
+                     << " total=" << duration_cast<microseconds>(t2 - t0).count() << "µs\n";
+            }
             return true;
         }
 
@@ -126,6 +141,7 @@ namespace ziplog::impl
             while (!worker.shutdown)
             {
                 WorkItem item;
+                auto t0 = high_resolution_clock::now();
 
                 {
                     std::unique_lock<std::mutex> lock(worker.queue_mu);
@@ -138,7 +154,7 @@ namespace ziplog::impl
                     worker.pending_queue.pop();
                 }
 
-                auto start = high_resolution_clock::now();
+                auto t1 = high_resolution_clock::now(); // deque
 
                 if (item.msg.type == APPEND)
                 {
@@ -147,11 +163,16 @@ namespace ziplog::impl
 
                 // send and wait for ack on persistent connection
                 bool ok = NetworkUtils::send_message(worker.socket, item.msg);
+
+                auto t2 = high_resolution_clock::now(); // sent message
+
                 if (ok)
                 {
                     Message ack;
                     ok = NetworkUtils::recv_message(worker.socket, ack);
                 }
+
+                auto t3 = high_resolution_clock::now(); // recv ack
 
                 if (!ok)
                 {
@@ -172,10 +193,23 @@ namespace ziplog::impl
                     item.state->cv.notify_one();
                 }
 
-                auto end = high_resolution_clock::now();
-                
-                auto dur = duration_cast<microseconds>(end - start);
-                cout << "Proxy replicate total latency: " << dur.count() << " us\n";
+                auto t4 = high_resolution_clock::now(); // quorum signaled
+
+                if (item.msg.type == APPEND)
+                {
+                    auto cv_wait = duration_cast<microseconds>(t1 - t0).count();
+                    auto send = duration_cast<microseconds>(t2 - t1).count();
+                    auto recv_ack = duration_cast<microseconds>(t3 - t2).count();
+                    auto signal = duration_cast<microseconds>(t4 - t3).count();
+                    auto total = duration_cast<microseconds>(t4 - t1).count();
+
+                    cout << "[replicator server=" << server_idx << "]"
+                         << " cv_wait=" << cv_wait << "µs"
+                         << " send=" << send << "µs"
+                         << " recv_ack=" << recv_ack << "µs"
+                         << " signal=" << signal << "µs"
+                         << " total=" << total << "µs\n";
+                }
             }
             close(worker.socket);
         }
