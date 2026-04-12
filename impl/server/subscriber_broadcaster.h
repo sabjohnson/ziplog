@@ -115,22 +115,25 @@ namespace ziplog::impl
                 if (sock < 0)
                     break;
 
-                auto start = high_resolution_clock::now();
-
                 if (msg.type == APPEND)
                 {
                     // cout << "[server] broadcaster sending at " << std::to_string(now()) << endl;
                 }
 
+                auto start = high_resolution_clock::now();
+                auto start2 = high_resolution_clock::now();
                 if (NetworkUtils::send_message(sock, msg))
                 {
                     Message ack;
+                    start2 = high_resolution_clock::now();
                     NetworkUtils::recv_message(sock, ack);
                 }
                 auto end = high_resolution_clock::now();
-                
-                auto dur = duration_cast<microseconds>(end - start);
-                cout << "Server broadcast latency: " << dur.count() << " us\n";
+
+                auto dur1 = duration_cast<microseconds>(end - start);
+                auto dur2 = duration_cast<microseconds>(end - start2);
+                cout << "Server broadcast send latency: " << dur1.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                cout << "Server broadcast recv latency: " << dur2.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
             }
         }
 

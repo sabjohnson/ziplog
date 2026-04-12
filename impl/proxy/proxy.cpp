@@ -183,7 +183,11 @@ namespace ziplog::impl
         }
         auto end = high_resolution_clock::now();
         auto dur = duration_cast<EpochDurationUnit>(end - start);
-        cout << "Proxy update slot estimate(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+
+        if (estimate)
+        {
+            cout << "Proxy update slot estimate(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+        }
     }
 
     void Proxy::send_out_batch(SequenceNumber seq)
