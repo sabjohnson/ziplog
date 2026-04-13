@@ -51,6 +51,12 @@ namespace ziplog::impl
             Message msg;
             if (!NetworkUtils::recv_message(server_sock, msg))
                 break;
+            Message ack;
+            ack.type = ACK;
+            ack.sender_id = id();
+            ack.seq_or_count = msg.seq_or_count;
+            if (!NetworkUtils::send_message(server_sock, ack))
+                break;
 
             auto start = high_resolution_clock::now();
 
@@ -62,13 +68,6 @@ namespace ziplog::impl
             {
                 log_.observe(msg.sender_id, msg.get_sequence_number(), Command(), quorum());
             }
-
-            Message ack;
-            ack.type = ACK;
-            ack.sender_id = id();
-            ack.seq_or_count = msg.seq_or_count;
-            if (!NetworkUtils::send_message(server_sock, ack))
-                break;
 
             auto end = high_resolution_clock::now();
             auto dur = duration_cast<EpochDurationUnit>(end - start);
