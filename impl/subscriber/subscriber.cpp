@@ -51,14 +51,8 @@ namespace ziplog::impl
             Message msg;
             if (!NetworkUtils::recv_message(server_sock, msg))
                 break;
-            Message ack;
-            ack.type = ACK;
-            ack.sender_id = id();
-            ack.seq_or_count = msg.seq_or_count;
-            if (!NetworkUtils::send_message(server_sock, ack))
-                break;
 
-            auto start = high_resolution_clock::now();
+            auto t0 = high_resolution_clock::now();
 
             if (msg.type == APPEND)
             {
@@ -69,8 +63,22 @@ namespace ziplog::impl
                 log_.observe(msg.sender_id, msg.get_sequence_number(), Command(), quorum());
             }
 
+            auto t1 = high_resolution_clock::now();
+
+            Message ack;
+            ack.type = ACK;
+            ack.sender_id = id();
+            ack.seq_or_count = msg.seq_or_count;
+            if (!NetworkUtils::send_message(server_sock, ack))
+                break;
+
             auto end = high_resolution_clock::now();
-            auto dur = duration_cast<EpochDurationUnit>(end - start);
+            auto observe_dur = duration_cast<EpochDurationUnit>(t1 - t0);
+            auto ack_dur = duration_cast<EpochDurationUnit>(end - t1);
+            auto dur = duration_cast<EpochDurationUnit>(end - t0);
+
+            cout << "Subscriber log observe latency: " << observe_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            cout << "Subscriber ack latency: " << ack_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
             cout << "Subscriber total latency: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
         close(server_sock);
