@@ -104,10 +104,14 @@ namespace ziplog::impl
         auto allocations = slot_allocator_.compute_allocations(
             epoch_timer_.next_epoch(), config_.epoch_duration);
 
+        auto t1 = high_resolution_clock::now();
+
         if (allocations.size())
         {
             // cout << "zipper allocate_slots() got values" << endl;
-        }
+            auto dur = duration_cast<EpochDurationUnit>(t1 - start);
+            cout << "Zipper allocate slots(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                }
 
         for (const auto &[proxy_id, values] : allocations)
         {

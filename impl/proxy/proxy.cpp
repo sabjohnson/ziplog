@@ -122,7 +122,7 @@ namespace ziplog::impl
             return;
 
         ZLOG("[proxy " << id() << "] got " << msg.get_num_requests() << " slots from zipper");
-        cout << "proxy got slots from zipper at " << now() << endl;
+        cout << "proxy got slots from zipper at " << now() << "\n";
         auto start = high_resolution_clock::now();
 
         // cout << "[proxy " << id() << "] got slots from zipper at " << std::to_string(now()) << endl;
@@ -196,7 +196,7 @@ namespace ziplog::impl
     {
         auto start = high_resolution_clock::now();
         ZLOG("[proxy " << id() << "] send_out_batch() called");
-        cout << "proxy send batch called at " << now() << endl;
+        cout << "proxy send batch called at " << now() << "\n";
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();
