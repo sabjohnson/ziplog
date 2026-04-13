@@ -22,6 +22,8 @@ namespace ziplog::impl
         size_t num_servers() const { return config_.servers.size(); }
 
     private:
+        std::atomic<SequenceNumber> next_seq_{1};
+
         // --- components ---
         SlotScheduler slot_scheduler_;
         ServerReplicator replicator_;

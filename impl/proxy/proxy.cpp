@@ -155,7 +155,23 @@ namespace ziplog::impl
     /* -----------------------------------------------------------------------------------------------------------------------
         Epoch Callbacks
     ----------------------------------------------------------------------------------------------------------------------- */
+    void Proxy::update_slot_estimate()
+    {
+        SequenceNumber estimate = slot_scheduler_.compute_estimate();
+        if (!estimate)
+            return;
 
+        // self-assign slots, bypass zipper entirely
+        std::vector<SequenceNumber> ordering_values;
+        Timestamp ts = now();
+        for (SequenceNumber i = 0; i < estimate; i++)
+        {
+            ordering_values.push_back(ts);                     // timeout
+            ordering_values.push_back(next_seq_.fetch_add(1)); // seq
+        }
+        slot_scheduler_.load_slots(ordering_values);
+    }
+    /**
     void Proxy::update_slot_estimate()
     {
         auto start = high_resolution_clock::now();
@@ -191,6 +207,7 @@ namespace ziplog::impl
             cout << "Proxy update slot estimate() = " << estimate << ": " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
     }
+        */
 
     void Proxy::send_out_batch(SequenceNumber seq)
     {
