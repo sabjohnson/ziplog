@@ -23,8 +23,9 @@ namespace ziplog::impl
         }
 
         // called per message received from a server
+        /**
         void observe(NodeId sender, SequenceNumber seq,
-                     const Command &data, size_t quorum)
+                        const Command &data, size_t quorum)
         {
             std::lock_guard<std::mutex> lock(mu_);
             if (applied_.count(seq))
@@ -38,6 +39,29 @@ namespace ziplog::impl
                 applied_.insert(seq);
                 pending_quorum_.erase(seq);
             }
+        }
+        */
+
+        void observe(NodeId sender, SequenceNumber seq, const Command &data, size_t quorum)
+        {
+            std::vector<std::pair<SequenceNumber, int64_t>> to_print;
+            {
+                std::lock_guard<std::mutex> lock(mu_);
+                if (applied_.count(seq))
+                    return;
+
+                pending_quorum_[seq].insert(sender);
+                if (pending_quorum_[seq].size() >= quorum)
+                {
+                    apply_locked(seq, data, to_print);
+                    applied_.insert(seq);
+                    pending_quorum_.erase(seq);
+                }
+            }
+            // print outside lock
+            for (auto &[seq, lat] : to_print)
+                cout << "[latency] seq=" << seq << " latency=" << lat
+                     << " " << EPOCH_DURATION_UNIT_STR << "\n"; // \n not endl
         }
 
         // wait until log has at least `count` committed entries (blocking)
@@ -144,7 +168,40 @@ namespace ziplog::impl
 
     private:
         // called with mu_ already held
-        void apply_locked(SequenceNumber seq, const Command &data)
+        void apply_locked(SequenceNumber seq, const Command &data,
+                          std::vector<std::pair<SequenceNumber, int64_t>> &to_print)
+        {
+            Timestamp received = now();
+
+            out_of_order_[seq] = data;
+            while (out_of_order_.count(next_seq_))
+            {
+                vector<Command> commands = CommandBatch::deserialize(out_of_order_[next_seq_]);
+
+                for (auto &command : commands)
+                {
+                    auto it = std::find(command.begin(), command.end(), '|');
+                    if (it != command.end())
+                    {
+                        string ts_str(command.begin(), it);
+                        if (!ts_str.empty() && std::all_of(ts_str.begin(), ts_str.end(), [](unsigned char c)
+                                                           { return std::isdigit(c); }))
+                        {
+                            Timestamp sent = std::stoull(ts_str);
+                            int64_t latency = static_cast<int64_t>(received) - static_cast<int64_t>(sent);
+                            to_print.emplace_back(next_seq_, latency); // ← store, don't print
+                        }
+                    }
+                }
+
+                log_.push_back(out_of_order_[next_seq_]);
+                out_of_order_.erase(next_seq_);
+                next_seq_++;
+            }
+            cv_.notify_all();
+        }
+
+        void apply_locked_og(SequenceNumber seq, const Command &data)
         {
             Timestamp received = now();
 
