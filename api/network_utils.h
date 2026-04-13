@@ -59,12 +59,14 @@ namespace ziplog
                  @return: boolean of success of reading size header and deserializing message struct from file descriptor
             */
             static bool recv_message(int socket, Message &msg);
+            static bool recv_message_spin(int socket, Message &msg);
 
             /*
                  @param: file descriptor to read from, buffer to write the read bytes to, the number of bytes to read in
                  @return: boolean of success of reading all bytes from file descriptor
             */
             static bool recv_bytes(int socket, void *data, size_t len);
+            static bool recv_bytes_spin(int socket, void *data, size_t len);
 
             /*
             -------------------------------------------------------------------------------------------

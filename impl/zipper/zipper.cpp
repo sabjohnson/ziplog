@@ -110,8 +110,8 @@ namespace ziplog::impl
         {
             // cout << "zipper allocate_slots() got values" << endl;
             auto dur = duration_cast<EpochDurationUnit>(t1 - start);
-            cout << "Zipper allocate slots(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-                }
+            cout << "Zipper compute allocations(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+        }
 
         for (const auto &[proxy_id, values] : allocations)
         {
@@ -121,9 +121,9 @@ namespace ziplog::impl
                 .detach();
         }
         auto end = high_resolution_clock::now();
-        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        auto dur = duration_cast<EpochDurationUnit>(t1 - start);
 
-        // cout << "Zipper allocate slots(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+        cout << "Zipper deliver slot allocation work setting: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         // cout << "zipper allocate_slots() exited" << endl;
     }
 

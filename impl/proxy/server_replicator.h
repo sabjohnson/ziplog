@@ -169,7 +169,8 @@ namespace ziplog::impl
                 if (ok)
                 {
                     Message ack;
-                    ok = NetworkUtils::recv_message(worker.socket, ack);
+                    // ok = NetworkUtils::recv_message(worker.socket, ack);
+                    ok = NetworkUtils::recv_message_spin(worker.socket, ack);
                 }
 
                 auto t3 = high_resolution_clock::now(); // recv ack

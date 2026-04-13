@@ -210,6 +210,53 @@ namespace ziplog
             return true;
         }
 
+        // non-blocking recv_bytes — spins until data available
+        bool NetworkUtils::recv_bytes_spin(int socket, void *data, size_t len)
+        {
+            uint8_t *ptr = static_cast<uint8_t *>(data);
+            size_t received = 0;
+
+            while (received < len)
+            {
+                ssize_t result = recv(socket, ptr + received, len - received, MSG_DONTWAIT);
+                if (result > 0)
+                {
+                    received += result;
+                }
+                else if (result < 0 && errno == EAGAIN)
+                {
+                    continue; // spin
+                }
+                else
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool NetworkUtils::recv_message_spin(int socket, Message &msg)
+        {
+            uint16_t msg_len;
+            if (!recv_bytes_spin(socket, &msg_len, 2))
+                return false;
+
+            msg_len = ntohs(msg_len);
+            if (msg_len > MAX_MESSAGE_SIZE)
+                return false;
+
+            vector<uint8_t> buffer(msg_len);
+            if (!recv_bytes_spin(socket, buffer.data(), msg_len))
+                return false;
+
+            auto opt_msg = Message::deserialize(buffer);
+            if (!opt_msg)
+                return false;
+
+            msg = *opt_msg;
+            return true;
+        }
+
         /*
         -------------------------------------------------------------------------------------------
         Socket Creation and Configuration
