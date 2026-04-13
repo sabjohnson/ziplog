@@ -41,7 +41,7 @@ namespace ziplog::impl
         while (running())
         {
             Message msg;
-            if (!NetworkUtils::recv_message(proxy_socket, msg))
+            if (!NetworkUtils::recv_message_spin(proxy_socket, msg))
                 break;
 
             if (msg.type == APPEND || msg.type == SKIP)
