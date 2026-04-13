@@ -67,6 +67,7 @@ namespace ziplog::impl
             if (req.type == APPEND)
             {
                 auto start = high_resolution_clock::now();
+                cout << "proxy got client req at " << now() << endl;
                 if (!registered_)
                 {
                     Message resp;
@@ -121,6 +122,7 @@ namespace ziplog::impl
             return;
 
         ZLOG("[proxy " << id() << "] got " << msg.get_num_requests() << " slots from zipper");
+        cout << "proxy got slots from zipper at " << now() << endl;
         auto start = high_resolution_clock::now();
 
         // cout << "[proxy " << id() << "] got slots from zipper at " << std::to_string(now()) << endl;
@@ -194,6 +196,7 @@ namespace ziplog::impl
     {
         auto start = high_resolution_clock::now();
         ZLOG("[proxy " << id() << "] send_out_batch() called");
+        cout << "proxy send batch called at " << now() << endl;
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();
@@ -210,7 +213,7 @@ namespace ziplog::impl
             msg.type = APPEND;
             msg.data = batch.serialize();
             Timestamp send_time = now();
-            // cout << "[proxy " << id() << "] sending batch out at " << std::to_string(send_time) << std::endl;
+            cout << "[proxy " << id() << "] sending batch out at " << std::to_string(send_time) << std::endl;
         }
 
         msg.set_sequence_number(seq);
