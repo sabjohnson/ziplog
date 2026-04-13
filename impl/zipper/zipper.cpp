@@ -118,7 +118,11 @@ namespace ziplog::impl
         }
         auto end = high_resolution_clock::now();
         auto dur = duration_cast<EpochDurationUnit>(end - start);
-        cout << "Zipper allocate slots(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+
+        if (dur.count() > 20)
+        {
+            cout << "Zipper allocate slots(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+        }
         // cout << "zipper allocate_slots() exited" << endl;
     }
 
