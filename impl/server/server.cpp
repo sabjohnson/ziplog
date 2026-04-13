@@ -46,11 +46,12 @@ namespace ziplog::impl
 
             if (msg.type == APPEND || msg.type == SKIP)
             {
-                auto start = high_resolution_clock::now();
                 if (msg.type == APPEND)
                 {
                     // cout << "[server " << id() << "] got batch at " << std::to_string(now()) << std::endl;
                 }
+
+                auto t0 = high_resolution_clock::now();
 
                 Message ack;
                 ack.type = ACK;
@@ -58,10 +59,8 @@ namespace ziplog::impl
                 ack.sender_id = id();
                 ack.set_sequence_number(msg.get_sequence_number());
                 NetworkUtils::send_message(proxy_socket, ack);
-                auto end = high_resolution_clock::now();
 
-                auto dur = duration_cast<microseconds>(end - start);
-                cout << "Server ack latency: " << dur.count() << " us\n";
+                auto t1 = high_resolution_clock::now();
 
                 if (!liveness_.is_blocked(msg.sender_id))
                 {
@@ -69,9 +68,16 @@ namespace ziplog::impl
                     liveness_.remove_timeout(msg.sender_id, msg.get_sequence_number());
                     broadcaster_.broadcast(msg);
                 }
+                auto t2 = high_resolution_clock::now();
+                auto dur = duration_cast<microseconds>(t1 - t0);
+                cout << "Server ack latency: " << dur.count() << " us\n";
+
+                dur = duration_cast<microseconds>(t2 - t1);
+                cout << "Server store and bcast latency: " << dur.count() << " us\n";
             }
             else if (msg.type == ZIP_RESPONSE)
             {
+                auto start = high_resolution_clock::now();
                 liveness_.update_timeouts(msg.sender_id, msg.ordering_values);
 
                 Message ack;
@@ -79,6 +85,11 @@ namespace ziplog::impl
                 ack.shard_id = shard();
                 ack.sender_id = id();
                 NetworkUtils::send_message(proxy_socket, ack);
+
+                auto end = high_resolution_clock::now();
+
+                auto dur = duration_cast<microseconds>(end - start);
+                cout << "Server handle zip response latency: " << dur.count() << " us\n";
             }
             else if (msg.type == FREEZE)
                 freeze_handler_.handle_freeze(msg, true);
