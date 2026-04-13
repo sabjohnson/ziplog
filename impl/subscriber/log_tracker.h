@@ -42,13 +42,13 @@ namespace ziplog::impl
         }
         */
 
-        void observe(NodeId sender, SequenceNumber seq, const Command &data, size_t quorum)
+        std::vector<std::pair<SequenceNumber, int64_t>> observe(NodeId sender, SequenceNumber seq, const Command &data, size_t quorum)
         {
             std::vector<std::pair<SequenceNumber, int64_t>> to_print;
             {
                 std::lock_guard<std::mutex> lock(mu_);
                 if (applied_.count(seq))
-                    return;
+                    return to_print;
 
                 pending_quorum_[seq].insert(sender);
                 if (pending_quorum_[seq].size() >= quorum)
@@ -58,10 +58,8 @@ namespace ziplog::impl
                     pending_quorum_.erase(seq);
                 }
             }
-            // print outside lock
-            for (auto &[seq, lat] : to_print)
-                cout << "[latency] seq=" << seq << " latency=" << lat
-                     << " " << EPOCH_DURATION_UNIT_STR << "\n"; // \n not endl
+
+            return to_print;
         }
 
         // wait until log has at least `count` committed entries (blocking)

@@ -54,13 +54,14 @@ namespace ziplog::impl
 
             auto t0 = high_resolution_clock::now();
 
+            std::vector<std::pair<SequenceNumber, int64_t>> latencies;
             if (msg.type == APPEND)
             {
-                log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
+                latencies = log_.observe(msg.sender_id, msg.get_sequence_number(), msg.data, quorum());
             }
             else if (msg.type == SKIP)
             {
-                log_.observe(msg.sender_id, msg.get_sequence_number(), Command(), quorum());
+                latencies = log_.observe(msg.sender_id, msg.get_sequence_number(), Command(), quorum());
             }
 
             auto t1 = high_resolution_clock::now();
@@ -77,9 +78,14 @@ namespace ziplog::impl
             auto ack_dur = duration_cast<EpochDurationUnit>(end - t1);
             auto dur = duration_cast<EpochDurationUnit>(end - t0);
 
+            // print after ack — completely off critical path
+            for (auto &[seq, lat] : latencies)
+            {
+                cout << "[latency] seq=" << seq << " latency=" << lat
+                     << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            }
             cout << "Subscriber log observe latency: " << observe_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
             cout << "Subscriber ack latency: " << ack_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-            cout << "Subscriber total latency: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
         close(server_sock);
     }
