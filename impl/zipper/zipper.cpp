@@ -93,10 +93,7 @@ namespace ziplog::impl
         slot_allocator_.update_estimate(req.sender_id, req.get_num_requests());
         auto end = high_resolution_clock::now();
         auto dur = duration_cast<EpochDurationUnit>(end - start);
-        if (dur.count() > 20)
-        {
-            cout << "Zipper update slot estimate() : " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-        }
+        // cout << "Zipper update slot estimate() : " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 
     void Zipper::allocate_slots()

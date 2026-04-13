@@ -46,7 +46,9 @@ namespace ziplog::impl
 
         void broadcast(const Message &msg)
         {
+            auto t0 = high_resolution_clock::now();
             std::lock_guard<std::mutex> lock(mu_);
+            auto t1 = high_resolution_clock::now(); // acquiring lock
             if (msg.type == APPEND)
             {
                 // cout << "[server *] broadcast called at " << std::to_string(now()) << endl;
@@ -59,6 +61,11 @@ namespace ziplog::impl
                 }
                 worker->cv.notify_one();
             }
+            auto t2 = high_resolution_clock::now();
+            auto dur = duration_cast<EpochDurationUnit>(t1 - t0);
+            cout << "subscriber bcast - acquire lock: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            dur = duration_cast<EpochDurationUnit>(t2 - t1);
+            cout << "subscriber bcast - place work: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
             if (msg.type == APPEND)
             {
                 // cout << "[server *] broadcast placed work at " << std::to_string(now()) << endl;
@@ -120,18 +127,18 @@ namespace ziplog::impl
                     // cout << "[server] broadcaster sending at " << std::to_string(now()) << endl;
                 }
 
-                auto start = high_resolution_clock::now();
-                auto start2 = high_resolution_clock::now();
+                auto t0 = high_resolution_clock::now();
+                auto t1 = high_resolution_clock::now();
                 if (NetworkUtils::send_message(sock, msg))
                 {
                     Message ack;
-                    start2 = high_resolution_clock::now();
+                    t1 = high_resolution_clock::now();
                     NetworkUtils::recv_message(sock, ack);
                 }
-                auto end = high_resolution_clock::now();
+                auto t2 = high_resolution_clock::now();
 
-                auto dur1 = duration_cast<microseconds>(end - start);
-                auto dur2 = duration_cast<microseconds>(end - start2);
+                auto dur1 = duration_cast<microseconds>(t1 - t0);
+                auto dur2 = duration_cast<microseconds>(t2 - t1);
                 cout << "Server broadcast send latency: " << dur1.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
                 cout << "Server broadcast recv latency: " << dur2.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
             }

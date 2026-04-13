@@ -76,7 +76,6 @@ namespace ziplog::impl
             auto end = high_resolution_clock::now();
             auto observe_dur = duration_cast<EpochDurationUnit>(t1 - t0);
             auto ack_dur = duration_cast<EpochDurationUnit>(end - t1);
-            auto dur = duration_cast<EpochDurationUnit>(end - t0);
 
             // print after ack — completely off critical path
             for (auto &[seq, lat] : latencies)
