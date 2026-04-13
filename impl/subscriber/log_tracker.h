@@ -174,9 +174,7 @@ namespace ziplog::impl
             out_of_order_[seq] = data;
             while (out_of_order_.count(next_seq_))
             {
-                auto t0 = high_resolution_clock::now();
                 vector<Command> commands = CommandBatch::deserialize(out_of_order_[next_seq_]);
-                auto t1 = high_resolution_clock::now();
 
                 for (auto &command : commands)
                 {
@@ -193,13 +191,6 @@ namespace ziplog::impl
                         }
                     }
                 }
-                auto t2 = high_resolution_clock::now();
-
-                auto dur = duration_cast<EpochDurationUnit>(t1 - t0);
-
-                cout << "Subscriber log - command batch desrialize: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-                dur = duration_cast<EpochDurationUnit>(t2 - t1);
-                cout << "Subscriber log - string ops: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
 
                 log_.push_back(out_of_order_[next_seq_]);
                 out_of_order_.erase(next_seq_);
