@@ -257,6 +257,37 @@ namespace ziplog
             return true;
         }
 
+        bool NetworkUtils::recv_message_buffered(int socket, ReadBuffer &rb, Message &msg)
+        {
+            // ensure we have at least the 2-byte length prefix
+            while (rb.available() < 2)
+                if (!rb.refill_spin(socket))
+                    return false;
+
+            uint16_t msg_len;
+            memcpy(&msg_len, rb.data(), 2);
+            msg_len = ntohs(msg_len);
+
+            if (msg_len > MAX_MESSAGE_SIZE)
+                return false;
+
+            size_t total_needed = 2 + msg_len;
+
+            // ensure we have the full message
+            while (rb.available() < total_needed)
+                if (!rb.refill_spin(socket))
+                    return false;
+
+            // deserialize directly from buffer — zero extra allocation
+            auto opt_msg = Message::deserialize(rb.data() + 2, msg_len);
+            rb.consume(total_needed);
+
+            if (!opt_msg)
+                return false;
+            msg = *opt_msg;
+            return true;
+        }
+
         /*
         -------------------------------------------------------------------------------------------
         Socket Creation and Configuration

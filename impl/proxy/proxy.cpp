@@ -58,10 +58,12 @@ namespace ziplog::impl
 
     void Proxy::handle_connection(int client_socket)
     {
+        NetworkUtils::ReadBuffer rb; // lives on stack for this connection
+
         while (running())
         {
             Message req;
-            if (!NetworkUtils::recv_message(client_socket, req))
+            if (!NetworkUtils::recv_message_buffered(client_socket, rb, req))
                 break;
 
             if (req.type == APPEND)

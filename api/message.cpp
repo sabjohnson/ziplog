@@ -157,5 +157,67 @@ namespace ziplog
 
             return msg;
         }
+
+        std::optional<Message> Message::deserialize(const uint8_t *buffer, size_t size)
+        {
+            if (size < 28)
+                return nullopt;
+
+            Message msg;
+            size_t offset = 0;
+
+            uint32_t net_type;
+            memcpy(&net_type, buffer + offset, 4);
+            msg.type = static_cast<MessageType>(ntohl(net_type));
+            offset += 4;
+
+            uint32_t net_shard_id;
+            memcpy(&net_shard_id, buffer + offset, 4);
+            msg.shard_id = ntohl(net_shard_id);
+            offset += 4;
+
+            uint32_t net_sender_id;
+            memcpy(&net_sender_id, buffer + offset, 4);
+            msg.sender_id = ntohl(net_sender_id);
+            offset += 4;
+
+            uint64_t net_seq;
+            memcpy(&net_seq, buffer + offset, 8);
+            msg.seq_or_count = ntohll(net_seq);
+            offset += 8;
+
+            uint32_t data_len;
+            memcpy(&data_len, buffer + offset, 4);
+            data_len = ntohl(data_len);
+            offset += 4;
+
+            if (offset + data_len > size)
+                return nullopt;
+
+            msg.data = Command(buffer + offset, buffer + offset + data_len);
+            offset += data_len;
+
+            if (offset + 4 > size)
+                return nullopt;
+
+            uint32_t ordering_len;
+            memcpy(&ordering_len, buffer + offset, 4);
+            ordering_len = ntohl(ordering_len);
+            offset += 4;
+
+            if (offset + (ordering_len * 8) > size)
+                return nullopt;
+
+            msg.ordering_values.reserve(ordering_len);
+            for (uint32_t i = 0; i < ordering_len; i++)
+            {
+                uint64_t net_val;
+                memcpy(&net_val, buffer + offset, 8);
+                msg.ordering_values.push_back(ntohll(net_val));
+                offset += 8;
+            }
+
+            return msg;
+        }
     }
 }

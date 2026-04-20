@@ -42,6 +42,9 @@ namespace ziplog
             vector<uint8_t> serialize() const;                                        // returns empty vector on failure (message is too large)
             static std::optional<Message> deserialize(const vector<uint8_t> &buffer); // return std::nullopt on failure
 
+            // overload for fixed buffer (used by proxy)
+            static std::optional<Message> deserialize(const uint8_t *buf, size_t len);
+
             // Accessors to make intent clear (non-defensive assuming benign failures)
             SequenceNumber get_sequence_number() const
             {
