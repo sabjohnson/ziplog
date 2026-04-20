@@ -89,8 +89,12 @@ namespace ziplog
             iov[1].iov_base = const_cast<uint8_t *>(serialized.data());
             iov[1].iov_len = serialized.size();
 
+            struct msghdr hdr{};
+            hdr.msg_iov = iov;
+            hdr.msg_iovlen = 2;
+
             ssize_t expected = 2 + static_cast<ssize_t>(serialized.size());
-            return writev(socket, iov, 2) == expected;
+            return sendmsg(socket, &hdr, MSG_NOSIGNAL) == expected;
         }
 
         bool NetworkUtils::send_message_og(int socket, const Message &msg)

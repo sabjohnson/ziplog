@@ -105,6 +105,9 @@ namespace ziplog::impl
         {
             SubscriberWorker &worker = *workers_[idx];
 
+            NetworkUtils::ReadBuffer rb;
+            int current_socket = -1;
+
             while (!worker.shutdown)
             {
                 Message msg;
@@ -122,6 +125,12 @@ namespace ziplog::impl
                 if (sock < 0)
                     break;
 
+                if (sock != current_socket)
+                {
+                    current_socket = sock;
+                    rb.reset(); // sock change, flush old data
+                }
+
                 if (msg.type == APPEND)
                 {
                     // cout << "[server] broadcaster sending at " << std::to_string(now()) << endl;
@@ -133,7 +142,7 @@ namespace ziplog::impl
                 {
                     Message ack;
                     t1 = high_resolution_clock::now();
-                    NetworkUtils::recv_message(sock, ack);
+                    NetworkUtils::recv_message_buffered(sock, rb, ack);
                 }
                 auto t2 = high_resolution_clock::now();
 

@@ -38,10 +38,12 @@ namespace ziplog::impl
 
     void Server::handle_connection(int proxy_socket)
     {
+        NetworkUtils::ReadBuffer rb;
+
         while (running())
         {
             Message msg;
-            if (!NetworkUtils::recv_message_spin(proxy_socket, msg))
+            if (!NetworkUtils::recv_message_buffered(proxy_socket, rb, msg))
                 break;
 
             if (msg.type == APPEND || msg.type == SKIP)

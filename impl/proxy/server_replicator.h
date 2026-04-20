@@ -134,10 +134,14 @@ namespace ziplog::impl
             while (worker.socket < 0 && !worker.shutdown)
             {
                 worker.socket = NetworkUtils::connect_to_address_persistent(server.ip, server.port);
+
                 if (worker.socket < 0)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                {
+                    // std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                }
             }
 
+            NetworkUtils::ReadBuffer rb;
             while (!worker.shutdown)
             {
                 WorkItem item;
@@ -170,7 +174,7 @@ namespace ziplog::impl
                 {
                     Message ack;
                     // ok = NetworkUtils::recv_message(worker.socket, ack);
-                    ok = NetworkUtils::recv_message_spin(worker.socket, ack);
+                    ok = NetworkUtils::recv_message_buffered(worker.socket, rb, ack);
                 }
 
                 auto t3 = high_resolution_clock::now(); // recv ack

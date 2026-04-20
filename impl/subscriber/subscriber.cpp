@@ -46,10 +46,12 @@ namespace ziplog::impl
 
     void Subscriber::handle_connection(int server_sock)
     {
+        NetworkUtils::ReadBuffer rb;
+
         while (running())
         {
             Message msg;
-            if (!NetworkUtils::recv_message(server_sock, msg))
+            if (!NetworkUtils::recv_message_buffered(server_sock, rb, msg))
                 break;
 
             auto t0 = high_resolution_clock::now();
