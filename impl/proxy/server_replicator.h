@@ -83,9 +83,15 @@ namespace ziplog::impl
             }
 
             // wait for quorum acks
+            while (state->ack_count.load(std::memory_order_acquire) < static_cast<int>(quorum_))
+            {
+                // spin
+            }
+            /**
             std::unique_lock<std::mutex> lock(state->mu);
             state->cv.wait(lock, [&]()
                            { return state->ack_count >= static_cast<int>(quorum_); });
+            */
 
             auto t2 = high_resolution_clock::now(); // quorum reached
 
@@ -193,9 +199,9 @@ namespace ziplog::impl
                 // signal quorum waiter
                 if (item.state)
                 {
-                    std::lock_guard<std::mutex> lock(item.state->mu);
-                    item.state->ack_count++;
-                    item.state->cv.notify_one();
+                    // std::lock_guard<std::mutex> lock(item.state->mu);
+                    item.state->ack_count.fetch_add(1, std::memory_order_release); // https://en.cppreference.com/cpp/atomic/atomic/fetch_add
+                    // item.state->cv.notify_one();
                 }
 
                 auto t4 = high_resolution_clock::now(); // quorum signaled
