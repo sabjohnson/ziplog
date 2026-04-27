@@ -23,6 +23,7 @@ namespace ziplog::impl
 
     private:
         std::atomic<SequenceNumber> next_seq_{1};
+        Timestamp epoch_duration_{0};
 
         // --- components ---
         SlotScheduler slot_scheduler_;

@@ -89,6 +89,14 @@ namespace ziplog::impl
             return !sequences_.empty();
         }
 
+        void push_front(Timestamp ts, SequenceNumber seq)
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            timeouts_.push_front(ts);
+            sequences_.push_front(seq);
+            next_send_ = timeouts_.front();
+        }
+
     private:
         mutable std::mutex mu_;
 

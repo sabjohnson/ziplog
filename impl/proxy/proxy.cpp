@@ -18,8 +18,11 @@ namespace ziplog::impl
                                                                                                                       [this](Timestamp &ts, SequenceNumber &seq)
                                                                                                                       { return slot_scheduler_.pop_next_slot(ts, seq); },
                                                                                                                       [this](SequenceNumber seq)
-                                                                                                                      { send_out_batch(seq); })
+                                                                                                                      { send_out_batch(seq); },
+                                                                                                                      [this](Timestamp ts, SequenceNumber seq)
+                                                                                                                      { slot_scheduler_.push_front(ts, seq); })
     {
+        epoch_duration_ = cfg.epoch_duration;
         replicator_.start();
         start_listening();
         epoch_timer_.start();
@@ -33,8 +36,11 @@ namespace ziplog::impl
                                                                                                                       [this](Timestamp &ts, SequenceNumber &seq)
                                                                                                                       { return slot_scheduler_.pop_next_slot(ts, seq); },
                                                                                                                       [this](SequenceNumber seq)
-                                                                                                                      { send_out_batch(seq); })
+                                                                                                                      { send_out_batch(seq); },
+                                                                                                                      [this](Timestamp ts, SequenceNumber seq)
+                                                                                                                      { slot_scheduler_.push_front(ts, seq); })
     {
+        epoch_duration_ = cfg.epoch_duration;
         registered_ = registered;
         replicator_.start();
         attempt_join(true);
@@ -159,6 +165,25 @@ namespace ziplog::impl
     ----------------------------------------------------------------------------------------------------------------------- */
     void Proxy::update_slot_estimate()
     {
+        SequenceNumber estimate = 1;
+
+        // self-assign slots, bypass zipper entirely
+        std::vector<SequenceNumber> ordering_values;
+        Timestamp ts = now();
+        Timestamp interval = static_cast<Timestamp>(epoch_duration_) / estimate;
+
+        for (SequenceNumber i = 0; i < estimate; i++)
+        {
+            Timestamp send_ts = ts + (interval * (i + 1));     // evenly spaced
+            ordering_values.push_back(send_ts);                // timeout
+            ordering_values.push_back(next_seq_.fetch_add(1)); // seq
+        }
+        slot_scheduler_.load_slots(ordering_values);
+    }
+
+    /*
+    void Proxy::update_slot_estimate()
+    {
         SequenceNumber estimate = slot_scheduler_.compute_estimate();
         if (!estimate)
             return;
@@ -173,6 +198,7 @@ namespace ziplog::impl
         }
         slot_scheduler_.load_slots(ordering_values);
     }
+        */
     /**
     void Proxy::update_slot_estimate()
     {
@@ -215,7 +241,7 @@ namespace ziplog::impl
     {
         auto start = high_resolution_clock::now();
         ZLOG("[proxy " << id() << "] send_out_batch() called");
-        cout << "proxy send batch called at " << now() << "\n";
+        // cout << "proxy send batch called at " << now() << "\n";
         Message msg;
         msg.shard_id = shard();
         msg.sender_id = id();
