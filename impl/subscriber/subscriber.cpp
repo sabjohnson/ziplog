@@ -85,8 +85,8 @@ namespace ziplog::impl
                 cout << "[latency] seq=" << seq << " latency=" << lat
                      << " " << EPOCH_DURATION_UNIT_STR << "\n";
             }
-            cout << "Subscriber log observe latency: " << observe_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-            cout << "Subscriber ack latency: " << ack_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            // cout << "Subscriber log observe latency: " << observe_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            // cout << "Subscriber ack latency: " << ack_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
         close(server_sock);
     }

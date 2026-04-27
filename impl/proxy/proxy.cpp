@@ -276,6 +276,6 @@ namespace ziplog::impl
         }
         auto end = high_resolution_clock::now();
         auto dur = duration_cast<EpochDurationUnit>(end - start);
-        cout << "Proxy send out batch(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+        // cout << "Proxy send out batch(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 } // namespace ziplog::impl

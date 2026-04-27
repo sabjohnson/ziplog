@@ -72,10 +72,10 @@ namespace ziplog::impl
                 }
                 auto t2 = high_resolution_clock::now();
                 auto dur = duration_cast<microseconds>(t1 - t0);
-                cout << "Server ack latency: " << dur.count() << " us\n";
+                // cout << "Server ack latency: " << dur.count() << " us\n";
 
                 dur = duration_cast<microseconds>(t2 - t1);
-                cout << "Server store and bcast latency: " << dur.count() << " us\n";
+                // cout << "Server store and bcast latency: " << dur.count() << " us\n";
             }
             else if (msg.type == ZIP_RESPONSE)
             {
