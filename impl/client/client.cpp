@@ -38,10 +38,6 @@ namespace ziplog::impl
 
             Timestamp send_time = now();
 
-            // string ts_prefix = std::to_string(send_time) + "|";
-            // Command data(ts_prefix.begin(), ts_prefix.end());
-            // data.insert(data.end(), payload.begin(), payload.end());
-
             Message req;
             req.type = APPEND;
             req.data = make_payload(send_time);

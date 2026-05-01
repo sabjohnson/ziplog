@@ -50,7 +50,7 @@ namespace ziplog::impl
             {
                 if (msg.type == APPEND)
                 {
-                    // cout << "[server " << id() << "] got batch at " << std::to_string(now()) << std::endl;
+                    cout << "[server " << id() << "] got batch at " << std::to_string(now()) << "\n";
                 }
 
                 auto t0 = high_resolution_clock::now();
