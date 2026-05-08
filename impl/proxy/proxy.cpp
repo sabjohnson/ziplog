@@ -45,78 +45,108 @@ namespace ziplog::impl
         replicator_.start();
         attempt_join(true);
         start_listening();
-        // epoch_timer_.start() called after INCLUDE_PROXY received
+        epoch_timer_.start();
     }
 
     Proxy::~Proxy()
     {
         ZLOG("Proxy " << id() << " shutdown() called");
+        cout << "Proxy " << id() << " shutdown() called" << endl;
         epoch_timer_.stop();
+        cout << "epoch timer done" << endl;
         BaseNode::shutdown();
+        cout << "basenode done" << endl;
         replicator_.shutdown();
+        cout << "replicator done" << endl;
         zipper_pool_.close_all();
         ZLOG("Proxy " << id() << " shutdown() complete");
+        cout << "Proxy " << id() << " shutdown() complete" << endl;
     }
 
     /* -----------------------------------------------------------------------------------------------------------------------
-        Message Handling
+        Main Loop
     ----------------------------------------------------------------------------------------------------------------------- */
-
     void Proxy::handle_connection(int client_socket)
     {
         NetworkUtils::ReadBuffer rb; // lives on stack for this connection
 
         while (running())
         {
-            Message req;
-            if (!NetworkUtils::recv_message_buffered(client_socket, rb, req))
+            size_t msg_len;
+            const uint8_t *buf = NetworkUtils::recv_raw_buffered(client_socket, rb, msg_len);
+            if (!buf)
                 break;
 
-            if (req.type == APPEND)
+            // peek header — no full deserialize
+            auto header = MessageHeader::peek(buf, msg_len);
+            if (!header)
+            {
+                rb.consume(2 + msg_len); // TODOD: return here!!
+                break;
+            }
+
+            switch (header->type)
+            {
+            case APPEND:
             {
                 auto start = high_resolution_clock::now();
-                cout << "proxy got client req at " << now() << endl;
                 if (!registered_)
                 {
                     Message resp;
                     resp.type = FAILURE;
                     NetworkUtils::send_message(client_socket, resp);
-                    continue;
+                    break;
                 }
+
+                // data starts at offset 24 (type(4) + shard(4) + sender(4) + seq(8) + data_len(4) = 24)
+                if (msg_len < 24)
+                    break;
+
                 ZLOG("[proxy " << id() << "] recv client req on socket " << client_socket);
 
-                client_buffers_.push(client_socket, req.data);
+                uint32_t data_len;
+                memcpy(&data_len, buf + 20, 4);
+                data_len = ntohl(data_len);
+
+                client_buffers_.push_raw(client_socket, buf + 24, data_len);
                 auto client_buffers_end = high_resolution_clock::now();
 
                 slot_scheduler_.record_request();
                 auto slot_sched_end = high_resolution_clock::now();
 
-                ZLOG("[proxy " << id() << "] buffer size: "
-                               << client_buffers_.buffer_size(client_socket));
+                ZLOG("[proxy " << id() << "] buffer size: " << client_buffers_.buffer_size(client_socket));
 
                 auto dur1 = duration_cast<EpochDurationUnit>(client_buffers_end - start);
                 auto dur2 = duration_cast<EpochDurationUnit>(slot_sched_end - start);
 
                 cout << "Proxy client buffer - push: " << dur1.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
                 cout << "Proxy slot scheduler - record request: " << dur2.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                break;
             }
-            else if (req.type == ZIP_RESPONSE)
-                handle_zip_response(req);
-            else if (req.type == INCLUDE_PROXY)
+            case ZIP_RESPONSE:
             {
-                if (!registered_)
-                {
-                    registered_ = true;
-                    epoch_timer_.start();
-                    ZLOG("[proxy " << id() << "] joined the system");
-                }
+                // handle_zip_response(buf, msg_len);   // TODO: needs vector version
+                break;
             }
-            else if (req.type == FREEZE)
+            case INCLUDE_PROXY:
+            {
+                if (registered_)
+                    break;
+                registered_ = true;
+                epoch_timer_.start();
+                ZLOG("[proxy " << id() << "] joined the system");
+                break;
+            }
+            case FREEZE:
             {
                 registered_ = false;
                 epoch_timer_.pause();
                 attempt_join(false);
+                break;
             }
+            }
+
+            rb.consume(2 + msg_len); // end
         }
 
         close(client_socket);
@@ -124,6 +154,72 @@ namespace ziplog::impl
         ZLOG("[proxy " << id() << "] closed socket " << client_socket);
     }
 
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Epoch Callbacks
+    ----------------------------------------------------------------------------------------------------------------------- */
+    void Proxy::update_slot_estimate()
+    {
+        SequenceNumber estimate = 1;
+
+        // self-assign slots, bypass zipper entirely
+        std::vector<SequenceNumber> ordering_values;
+        Timestamp ts = now();
+        Timestamp interval = static_cast<Timestamp>(epoch_duration_) / estimate;
+
+        for (SequenceNumber i = 0; i < estimate; i++)
+        {
+            Timestamp send_ts = ts + (interval * (i + 1));     // evenly spaced
+            ordering_values.push_back(send_ts);                // timeout
+            ordering_values.push_back(next_seq_.fetch_add(1)); // seq
+        }
+        slot_scheduler_.load_slots(ordering_values);
+    }
+
+    void Proxy::send_out_batch(SequenceNumber seq)
+    {
+        auto start = high_resolution_clock::now();
+        ZLOG("[proxy " << id() << "] send_out_batch() called");
+
+        auto drain = client_buffers_.drain();
+
+        std::vector<uint8_t> wire;
+
+        if (drain.participating.empty())
+        {
+            // SKIP — no data
+            wire = NetworkUtils::build_wire_bytes(SKIP, shard(), id(), seq, nullptr, 0);
+            client_buffers_.release(0);
+        }
+        else
+        {
+            // APPEND — data already serialized in drain.data
+            wire = NetworkUtils::build_wire_bytes(APPEND, shard(), id(), seq, drain.data, drain.len);
+            client_buffers_.release(drain.len);
+        }
+
+        bool success = replicator_.replicate_bytes(std::move(wire), seq);
+
+        if (!drain.participating.empty())
+        {
+            // build ACK/FAILURE wire bytes once, send to all clients
+            std::vector<uint8_t> resp_wire = NetworkUtils::build_wire_bytes(success ? SUCCESS : FAILURE, shard(), id(), 0, nullptr, 0);
+
+            for (int client : drain.participating)
+                NetworkUtils::send_bytes_raw(client, resp_wire.data(), resp_wire.size());
+        }
+
+        ZLOG("[proxy " << id() << "] replication "
+                       << (success ? "succeeded" : "failed")
+                       << " for seq " << seq);
+
+        auto end = high_resolution_clock::now();
+        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        // cout << "Proxy send out batch(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+    }
+
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Reconfiguration (not currently in use)
+    ----------------------------------------------------------------------------------------------------------------------- */
     void Proxy::handle_zip_response(const Message &msg)
     {
         if (msg.shard_id != shard())
@@ -158,124 +254,5 @@ namespace ziplog::impl
         if (sock < 0)
             return;
         NetworkUtils::send_message(sock, req);
-    }
-
-    /* -----------------------------------------------------------------------------------------------------------------------
-        Epoch Callbacks
-    ----------------------------------------------------------------------------------------------------------------------- */
-    void Proxy::update_slot_estimate()
-    {
-        SequenceNumber estimate = 1;
-
-        // self-assign slots, bypass zipper entirely
-        std::vector<SequenceNumber> ordering_values;
-        Timestamp ts = now();
-        Timestamp interval = static_cast<Timestamp>(epoch_duration_) / estimate;
-
-        for (SequenceNumber i = 0; i < estimate; i++)
-        {
-            Timestamp send_ts = ts + (interval * (i + 1));     // evenly spaced
-            ordering_values.push_back(send_ts);                // timeout
-            ordering_values.push_back(next_seq_.fetch_add(1)); // seq
-        }
-        slot_scheduler_.load_slots(ordering_values);
-    }
-
-    /*
-    void Proxy::update_slot_estimate()
-    {
-        SequenceNumber estimate = slot_scheduler_.compute_estimate();
-        if (!estimate)
-            return;
-
-        // self-assign slots, bypass zipper entirely
-        std::vector<SequenceNumber> ordering_values;
-        Timestamp ts = now();
-        for (SequenceNumber i = 0; i < estimate; i++)
-        {
-            ordering_values.push_back(ts);                     // timeout
-            ordering_values.push_back(next_seq_.fetch_add(1)); // seq
-        }
-        slot_scheduler_.load_slots(ordering_values);
-    }
-        */
-    /**
-    void Proxy::update_slot_estimate()
-    {
-        auto start = high_resolution_clock::now();
-
-        SequenceNumber estimate = slot_scheduler_.compute_estimate();
-
-        Message req;
-        req.type = ZIP_REQUEST;
-        req.shard_id = shard();
-        req.sender_id = id();
-        req.set_num_requests(estimate);
-
-        if (estimate)
-        {
-            ZLOG("[proxy " << id() << "] sending estimate " << estimate << " to zipper");
-        }
-
-        int sock = zipper_pool_.get_connection(config_.zipper);
-        if (sock < 0)
-        {
-            ZLOG("[proxy " << id() << "] could not reach zipper");
-            return;
-        }
-        if (!NetworkUtils::send_message(sock, req))
-        {
-            ZLOG("[proxy " << id() << "] failed to send estimate to zipper");
-        }
-        auto end = high_resolution_clock::now();
-        auto dur = duration_cast<EpochDurationUnit>(end - start);
-
-        if (estimate)
-        {
-            cout << "Proxy update slot estimate() = " << estimate << ": " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-        }
-    }
-        */
-
-    void Proxy::send_out_batch(SequenceNumber seq)
-    {
-        auto start = high_resolution_clock::now();
-        ZLOG("[proxy " << id() << "] send_out_batch() called");
-        // cout << "proxy send batch called at " << now() << "\n";
-        Message msg;
-        msg.shard_id = shard();
-        msg.sender_id = id();
-
-        auto [batch, participating] = client_buffers_.drain_batch();
-
-        if (participating.empty())
-        {
-            msg.type = SKIP;
-            msg.data = Command();
-        }
-        else
-        {
-            msg.type = APPEND;
-            msg.data = batch.serialize();
-            Timestamp send_time = now();
-            cout << "[proxy " << id() << "] sending batch out at " << std::to_string(send_time) << std::endl;
-        }
-
-        msg.set_sequence_number(seq);
-        bool success = replicator_.replicate(msg);
-
-        Message resp;
-        resp.type = success ? SUCCESS : FAILURE;
-        ZLOG("[proxy " << id() << "] replication "
-                       << (success ? "succeeded" : "failed")
-                       << " for seq " << seq);
-
-        for (int client : participating)
-        {
-            NetworkUtils::send_message(client, resp);
-        }
-        auto end = high_resolution_clock::now();
-        auto dur = duration_cast<EpochDurationUnit>(end - start);
-        // cout << "Proxy send out batch(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 } // namespace ziplog::impl

@@ -139,5 +139,28 @@ namespace ziplog::api
         };
 
         static bool recv_message_buffered(int socket, ReadBuffer &rb, Message &msg);
+
+        static const uint8_t *recv_raw_buffered(int socket, ReadBuffer &rb, size_t &msg_len);
+
+        static std::optional<MessageHeader> peek_header(const ReadBuffer &rb);
+
+        static bool send_bytes_raw(int socket, const uint8_t *data, size_t len);
+
+        static vector<uint8_t> build_wire_bytes(
+            MessageType type, ShardId shard_id, NodeId sender_id, SequenceNumber seq,
+            const uint8_t *data, size_t data_len);
+
+        static const uint8_t *get_data_ptr(const uint8_t *buf, size_t msg_len, size_t &data_len_out)
+        {
+            if (msg_len < 24)
+            {
+                data_len_out = 0;
+                return nullptr;
+            }
+            uint32_t data_len;
+            memcpy(&data_len, buf + 20, 4);
+            data_len_out = ntohl(data_len);
+            return buf + 24;
+        }
     };
 }

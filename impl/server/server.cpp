@@ -24,11 +24,15 @@ namespace ziplog::impl
     Server::~Server()
     {
         ZLOG("Server " << id() << " shutdown() called");
+        cout << "Server " << id() << " shutdown() called" << endl;
         broadcaster_.shutdown();
+        cout << "Server " << id() << " bcaster terminated" << endl;
         // liveness_.stop();
         BaseNode::shutdown();
+        cout << "Server " << id() << " basenode terminated" << endl;
         connection_pool_.close_all();
         ZLOG("Server " << id() << " shutdown() complete");
+        cout << "Server " << id() << " shutdown() complete" << endl;
     }
 
     void Server::shutdown()
@@ -36,77 +40,98 @@ namespace ziplog::impl
         BaseNode::shutdown();
     }
 
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Main Loop
+    ----------------------------------------------------------------------------------------------------------------------- */
     void Server::handle_connection(int proxy_socket)
     {
         NetworkUtils::ReadBuffer rb;
 
         while (running())
         {
-            Message msg;
-            if (!NetworkUtils::recv_message_buffered(proxy_socket, rb, msg))
+            size_t msg_len;
+            const uint8_t *buf = NetworkUtils::recv_raw_buffered(proxy_socket, rb, msg_len);
+            if (!buf)
                 break;
 
-            if (msg.type == APPEND || msg.type == SKIP)
+            auto header = MessageHeader::peek(buf, msg_len);
+            if (!header)
             {
-                if (msg.type == APPEND)
-                {
-                    cout << "[server " << id() << "] got batch at " << std::to_string(now()) << "\n";
-                }
-
-                auto t0 = high_resolution_clock::now();
-
-                Message ack;
-                ack.type = ACK;
-                ack.shard_id = shard();
-                ack.sender_id = id();
-                ack.set_sequence_number(msg.get_sequence_number());
-                NetworkUtils::send_message(proxy_socket, ack);
-
-                auto t1 = high_resolution_clock::now();
-
-                if (!liveness_.is_blocked(msg.sender_id))
-                {
-                    store_.store(msg.sender_id, msg);
-                    liveness_.remove_timeout(msg.sender_id, msg.get_sequence_number());
-                    broadcaster_.broadcast(msg);
-                }
-                auto t2 = high_resolution_clock::now();
-                auto dur = duration_cast<microseconds>(t1 - t0);
-                // cout << "Server ack latency: " << dur.count() << " us\n";
-
-                dur = duration_cast<microseconds>(t2 - t1);
-                // cout << "Server store and bcast latency: " << dur.count() << " us\n";
+                rb.consume(2 + msg_len);
+                break;
             }
-            else if (msg.type == ZIP_RESPONSE)
+
+            switch (header->type)
             {
-                auto start = high_resolution_clock::now();
-                liveness_.update_timeouts(msg.sender_id, msg.ordering_values);
-
-                Message ack;
-                ack.type = ACK;
-                ack.shard_id = shard();
-                ack.sender_id = id();
-                NetworkUtils::send_message(proxy_socket, ack);
-
-                auto end = high_resolution_clock::now();
-
-                auto dur = duration_cast<microseconds>(end - start);
-                cout << "Server handle zip response latency: " << dur.count() << " us\n";
+            case APPEND:
+            {
+                cout << "[server " << id() << "] got batch at " << std::to_string(now()) << "\n";
+                [[fallthrough]];
             }
-            else if (msg.type == FREEZE)
-                freeze_handler_.handle_freeze(msg, true);
-            else if (msg.type == TRANSFER_REQUEST)
-                freeze_handler_.handle_transfer_request(proxy_socket, msg);
-            else if (msg.type == FREEZE_COMPLETE)
-                liveness_.block_proxy(msg.get_failed_proxy());
-            else if (msg.type == INCLUDE_PROXY)
-                introduce_proxy(msg);
-            else if (msg.type == INCLUDE_SUBSCRIBER)
-                introduce_subscriber(proxy_socket, msg);
+            case SKIP:
+            {
+                // ACK immediately — zero alloc, zero copy
+                auto ack_wire = NetworkUtils::build_wire_bytes(
+                    ACK, shard(), id(), header->seq_or_count, nullptr, 0);
+                NetworkUtils::send_bytes_raw(proxy_socket, ack_wire.data(), ack_wire.size());
+
+                if (!liveness_.is_blocked(header->sender_id))
+                {
+                    // store raw bytes — one copy
+                    store_.store(header->sender_id, buf - 2, msg_len + 2);
+                    liveness_.remove_timeout(header->sender_id, header->seq_or_count);
+                    // broadcast raw bytes — one copy per subscriber worker
+                    broadcaster_.broadcast(buf - 2, msg_len + 2);
+                }
+                break;
+            }
+            case ZIP_RESPONSE:
+            {
+                auto opt_msg = Message::deserialize(buf, msg_len);
+                if (opt_msg)
+                {
+                    liveness_.update_timeouts(opt_msg->sender_id, opt_msg->ordering_values);
+                    auto ack_wire = NetworkUtils::build_wire_bytes(
+                        ACK, shard(), id(), 0, nullptr, 0);
+                    NetworkUtils::send_bytes_raw(proxy_socket, ack_wire.data(), ack_wire.size());
+                }
+                break;
+            }
+            case FREEZE:
+            {
+                // freeze_handler_.handle_freeze(msg, true);
+                break;
+            }
+            case TRANSFER_REQUEST:
+            {
+                // freeze_handler_.handle_transfer_request(proxy_socket, *opt_msg);
+                break;
+            }
+            case FREEZE_COMPLETE:
+            {
+                // liveness_.block_proxy(opt_msg->get_failed_proxy());
+                break;
+            }
+            case INCLUDE_PROXY:
+            {
+                // introduce_proxy(*opt_msg);
+                break;
+            }
+            case INCLUDE_SUBSCRIBER:
+            {
+                // introduce_subscriber(proxy_socket, *opt_msg);
+                break;
+            }
+            }
+
+            rb.consume(2 + msg_len);
         }
         close(proxy_socket);
     }
 
+    /* -----------------------------------------------------------------------------------------------------------------------
+        Reconfiguration
+    ----------------------------------------------------------------------------------------------------------------------- */
     void Server::introduce_proxy(const Message &msg)
     {
         string addr_info(msg.data.begin(), msg.data.end());
@@ -157,13 +182,11 @@ namespace ziplog::impl
         {
             if (liveness_.is_blocked(proxy_id))
                 continue;
-            for (const Message &stored : messages)
+            for (const auto &wire : messages)
             {
-                Message fwd = stored;
-                fwd.sender_id = id();
+                NetworkUtils::send_bytes_raw(sock, wire.data(), wire.size());
                 Message resp;
-                NetworkUtils::send_message(sock, fwd);
-                NetworkUtils::recv_message(sock, resp);
+                // NetworkUtils::recv_message_buffered(sock, rb, resp);
             }
         }
 

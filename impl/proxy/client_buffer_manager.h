@@ -1,75 +1,86 @@
 #pragma once
 #include "../api/types.h"
-#include "../include/circular_buffer.h"
-#include <unordered_map>
 #include <mutex>
 #include <set>
+#include <arpa/inet.h>
 
 using namespace ziplog::api;
 
 namespace ziplog::impl
 {
-
     class ClientBufferManager
     {
     public:
-        static constexpr size_t MAX_BATCH_BYTES = 60000;
+        static constexpr size_t CAPACITY = 1 << 20; // 1MB pre-allocated
 
-        void push(int client_socket, const Command &cmd)
+        struct DrainResult
+        {
+            const uint8_t *data; // pointer into buf_
+            size_t len;          // total bytes
+            std::set<int> participating;
+        };
+
+        // called from handle_connection — writes length-prefixed command
+        // directly into ring buffer. one copy, zero alloc.
+        bool push_raw(int client_socket, const uint8_t *data, size_t len)
         {
             std::lock_guard<std::mutex> lock(mu_);
-            client_buffers_[client_socket].push(PendingRequest(cmd, client_socket));
+
+            size_t needed = 4 + len; // CommandBatch wire format: uint32 len + data
+            if (used_ + needed > CAPACITY)
+                return false; // full — backpressure
+
+            uint32_t net_len = htonl(static_cast<uint32_t>(len));
+            memcpy(buf_ + write_pos_, &net_len, 4);
+            memcpy(buf_ + write_pos_ + 4, data, len);
+            write_pos_ += needed;
+            used_ += needed;
+            participating_.insert(client_socket);
+            return true;
         }
 
         void remove(int client_socket)
         {
             std::lock_guard<std::mutex> lock(mu_);
-            client_buffers_.erase(client_socket);
+            participating_.erase(client_socket);
         }
 
-        // round-robin drain across all client buffers up to MAX_BATCH_BYTES
-        // returns serialized batch and the set of participating client sockets
-        std::pair<CommandBatch, std::set<int>> drain_batch()
+        // called from send_out_batch — returns pointer + len into buffer
+        // zero copy. caller must call release() after send.
+        DrainResult drain()
         {
             std::lock_guard<std::mutex> lock(mu_);
-
-            CommandBatch batch;
-            std::set<int> participating;
-            size_t total = 0;
-            bool pulled = true;
-
-            while (pulled && total < MAX_BATCH_BYTES)
-            {
-                pulled = false;
-                for (auto &[socket, buffer] : client_buffers_)
-                {
-                    if (total >= MAX_BATCH_BYTES)
-                        break;
-                    PendingRequest pr;
-                    if (buffer.peek(pr) && total + pr.cmd.size() <= MAX_BATCH_BYTES)
-                    {
-                        buffer.pop(pr);
-                        batch.add_command(pr.cmd);
-                        participating.insert(pr.client_socket);
-                        total += pr.cmd.size();
-                        pulled = true;
-                    }
-                }
-            }
-
-            return {batch, participating};
+            DrainResult r;
+            r.data = buf_ + read_pos_;
+            r.len = used_;
+            r.participating = std::move(participating_);
+            participating_.clear();
+            return r;
         }
 
-        size_t buffer_size(int client_socket) const
+        void release(size_t consumed)
         {
             std::lock_guard<std::mutex> lock(mu_);
-            auto it = client_buffers_.find(client_socket);
-            return it != client_buffers_.end() ? it->second.size() : 0;
+            read_pos_ += consumed;
+            used_ -= consumed;
+            if (used_ == 0)
+                read_pos_ = write_pos_ = 0; // reset to front
         }
+
+        bool empty() const
+        {
+            std::lock_guard<std::mutex> lock(mu_);
+            return used_ == 0;
+        }
+
+        size_t buffer_size(int) const { return used_; } // approx
 
     private:
         mutable std::mutex mu_;
-        std::unordered_map<int, CircularBuffer<PendingRequest>> client_buffers_;
+        uint8_t buf_[CAPACITY]{};
+        size_t write_pos_{0};
+        size_t read_pos_{0};
+        size_t used_{0};
+        std::set<int> participating_;
     };
-
-} // namespace ziplog::impl
+}

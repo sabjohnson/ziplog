@@ -71,8 +71,9 @@ namespace ziplog::impl
                         break;
 
                     ZLOG("[freeze] got stored msg seq " << resp.get_sequence_number());
-                    store_.store(failed_proxy, resp);
-                    broadcaster_.broadcast(resp);
+                    auto wire = resp.serialize();
+                    store_.store(failed_proxy, wire.data(), wire.size());
+                    broadcaster_.broadcast(wire.data(), wire.size());
                 }
             }
 
@@ -137,12 +138,15 @@ namespace ziplog::impl
             }
 
             SequenceNumber req_last_seq = msg.get_sequence_number();
-            for (const Message &stored : store_.get(failed_proxy))
+            auto snap = store_.snapshot();
+            auto it = snap.find(failed_proxy);
+            if (it != snap.end())
             {
-                if (stored.get_sequence_number() <= req_last_seq)
-                    continue;
-                if (!NetworkUtils::send_message(socket, stored))
-                    return;
+                for (const auto &wire : it->second)
+                {
+                    // send wire bytes directly
+                    NetworkUtils::send_bytes_raw(socket, wire.data(), wire.size());
+                }
             }
 
             Message ack;

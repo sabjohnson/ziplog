@@ -26,10 +26,10 @@ namespace ziplog::impl
         Timestamp epoch_duration_{0};
 
         // --- components ---
-        SlotScheduler slot_scheduler_;
+        ProxyEpochTimer epoch_timer_;
         ServerReplicator replicator_;
         ClientBufferManager client_buffers_;
-        ProxyEpochTimer epoch_timer_;
+        SlotScheduler slot_scheduler_;
 
         // --- zipper connection ---
         ConnectionPool zipper_pool_;

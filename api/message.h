@@ -138,7 +138,49 @@ namespace ziplog
             }
         };
 
-        inline Message build_message(MessageType type = 0, ShardId shard_id = 0, NodeId sender_id = 0, SequenceNumber number = 0, Command data = {}, vector<SequenceNumber> values = {})
+        struct MessageHeader
+        {
+            MessageType type;
+            ShardId shard_id;
+            NodeId sender_id;
+            SequenceNumber seq_or_count;
+
+            static constexpr size_t SIZE = 20;
+
+            static std::optional<MessageHeader> peek(const uint8_t *buf, size_t available)
+            {
+                if (available < SIZE)
+                    return std::nullopt;
+
+                MessageHeader h;
+                size_t offset = 0;
+
+                uint32_t net_type;
+                memcpy(&net_type, buf + offset, 4);
+                h.type = static_cast<MessageType>(ntohl(net_type));
+                offset += 4;
+
+                uint32_t net_shard;
+                memcpy(&net_shard, buf + offset, 4);
+                h.shard_id = ntohl(net_shard);
+                offset += 4;
+
+                uint32_t net_sender;
+                memcpy(&net_sender, buf + offset, 4);
+                h.sender_id = ntohl(net_sender);
+                offset += 4;
+
+                uint64_t net_seq;
+                memcpy(&net_seq, buf + offset, 8);
+                h.seq_or_count = ntohll(net_seq);
+                offset += 8;
+
+                return h;
+            }
+        };
+
+        inline Message
+        build_message(MessageType type = 0, ShardId shard_id = 0, NodeId sender_id = 0, SequenceNumber number = 0, Command data = {}, vector<SequenceNumber> values = {})
         {
             Message message;
             message.type = type;

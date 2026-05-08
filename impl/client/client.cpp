@@ -5,6 +5,7 @@ using namespace ziplog::api;
 
 namespace ziplog::impl
 {
+
     Client::Client(Address proxy)
     {
         proxy_ = proxy;
@@ -15,17 +16,20 @@ namespace ziplog::impl
         connection_pool_.close_all();
     }
 
-    Command make_payload(Timestamp send_time)
+    static const Command BENCHMARK_PADDING = []()
+    {
+        constexpr size_t PAD_SIZE = 4096 - 28 - 21; // 21 = max uint64 digits + '|' and 28 = metadata size
+        Command pad(PAD_SIZE);
+        std::generate(pad.begin(), pad.end(), []()
+                      { return static_cast<uint8_t>(rand() % 256); });
+        return pad;
+    }();
+
+    inline Command make_benchmark_payload(Timestamp send_time)
     {
         string ts_prefix = std::to_string(send_time) + "|";
-
-        constexpr size_t TARGET_DATA_SIZE = 4096 - 28; // 4068
-        size_t random_size = TARGET_DATA_SIZE - ts_prefix.size();
-
         Command payload(ts_prefix.begin(), ts_prefix.end());
-        payload.resize(TARGET_DATA_SIZE);
-        std::generate(payload.begin() + ts_prefix.size(), payload.end(), []()
-                      { return static_cast<uint8_t>(rand() % 256); });
+        payload.insert(payload.end(), BENCHMARK_PADDING.begin(), BENCHMARK_PADDING.end());
         return payload;
     }
 
@@ -40,7 +44,7 @@ namespace ziplog::impl
 
             Message req;
             req.type = APPEND;
-            req.data = make_payload(send_time);
+            req.data = make_benchmark_payload(send_time);
 
             auto send_start = high_resolution_clock::now();
             if (!NetworkUtils::send_message(sock, req))
@@ -51,7 +55,6 @@ namespace ziplog::impl
             }
             auto send_end = high_resolution_clock::now();
 
-            auto recv_start = high_resolution_clock::now();
             Message resp;
             if (!NetworkUtils::recv_message(sock, resp))
             {
@@ -59,11 +62,10 @@ namespace ziplog::impl
                 cout << "client::append() failed to recv proxy response" << endl;
                 return false;
             }
-            auto recv_end = high_resolution_clock::now();
             auto end = high_resolution_clock::now();
 
             auto send_dur = duration_cast<EpochDurationUnit>(send_end - send_start);
-            auto recv_dur = duration_cast<EpochDurationUnit>(recv_end - recv_start);
+            auto recv_dur = duration_cast<EpochDurationUnit>(end - send_end);
             auto dur = duration_cast<EpochDurationUnit>(end - start);
 
             cout << "[client] sending request at " << std::to_string(send_time) << std::endl;
