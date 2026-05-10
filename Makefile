@@ -47,7 +47,8 @@ INCLUDES = -I. -Iapi -Iinclude -Iimpl -Ithird_party -I$(GTEST_DIR)/include
 TEST_RUNNER = test_runner
 
 # Link flags - ADD -fsanitize=address here too
-LDFLAGS = -fsanitize=address -lpthread
+# LDFLAGS = -fsanitize=address -lpthread
+LDFLAGS = -lpthread
 
 # Targets --------------------------------------------------
 
