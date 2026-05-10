@@ -60,7 +60,7 @@ namespace ziplog::impl
             if (!buf)
                 break;
 
-            cout << "subscriber recv message\n";
+            // cout << "subscriber recv message\n";
             auto header = MessageHeader::peek(buf, msg_len);
             if (!header)
             {
@@ -69,7 +69,7 @@ namespace ziplog::impl
                 break;
             }
 
-            cout << "subscriber processing message\n";
+            // cout << "subscriber processing message\n";
 
             auto t0 = high_resolution_clock::now();
 
