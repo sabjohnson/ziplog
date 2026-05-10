@@ -15,7 +15,7 @@ using namespace ziplog::impl;
 
 int main(int argc, char *argv[])
 {
-    if (argc != 3 && argc != 4)
+    if (argc < 3 || argc > 5)
     {
         std::cerr << "Usage: <mode> <config_file> [id]" << std::endl;
         std::cerr << "Modes:" << std::endl;
