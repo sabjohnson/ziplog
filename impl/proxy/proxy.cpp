@@ -53,11 +53,8 @@ namespace ziplog::impl
         ZLOG("Proxy " << id() << " shutdown() called");
         cout << "Proxy " << id() << " shutdown() called" << endl;
         epoch_timer_.stop();
-        cout << "epoch timer done" << endl;
         BaseNode::shutdown();
-        cout << "basenode done" << endl;
         replicator_.shutdown();
-        cout << "replicator done" << endl;
         zipper_pool_.close_all();
         ZLOG("Proxy " << id() << " shutdown() complete");
         cout << "Proxy " << id() << " shutdown() complete" << endl;
@@ -119,8 +116,8 @@ namespace ziplog::impl
                 auto dur1 = duration_cast<EpochDurationUnit>(client_buffers_end - start);
                 auto dur2 = duration_cast<EpochDurationUnit>(slot_sched_end - start);
 
-                cout << "Proxy client buffer - push: " << dur1.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-                cout << "Proxy slot scheduler - record request: " << dur2.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                // cout << "Proxy client buffer - push: " << dur1.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+                // cout << "Proxy slot scheduler - record request: " << dur2.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
                 break;
             }
             case ZIP_RESPONSE:
