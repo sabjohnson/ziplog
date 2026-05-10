@@ -68,10 +68,10 @@ namespace ziplog::impl
             auto recv_dur = duration_cast<EpochDurationUnit>(end - send_end);
             auto dur = duration_cast<EpochDurationUnit>(end - start);
 
-            cout << "[client] sending request at " << std::to_string(send_time) << std::endl;
-            cout << "Client send latency: " << send_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-            cout << "Client recv latency: " << recv_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
-            cout << "Client total latency: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            // cout << "[client] sending request at " << std::to_string(send_time) << "\n";
+            // cout << "Client send latency: " << send_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            // cout << "Client recv latency: " << recv_dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
+            // cout << "Client total latency: " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
 
             return resp.type == SUCCESS;
         }
