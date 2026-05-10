@@ -109,6 +109,27 @@ int main(int argc, char *argv[])
             std::cout << "Press Enter to shutdown..." << std::endl;
             std::cin.get();
         }
+        else if (mode == "benchmark")
+        {
+            if (!id.has_value())
+            {
+                std::cerr << "Benchmark mode requires a proxy ID" << std::endl;
+                return ERROR;
+            }
+            int num_commands = argc >= 5 ? std::stoi(argv[4]) : 1000;
+
+            Address proxy_addr = config.proxies[*id]; // get the proxy address using the id
+            Client client(proxy_addr);
+
+            int success = 0;
+            for (int i = 0; i < num_commands; i++)
+            {
+                if (client.append(Command()))
+                    success++; // empty payload, client auto builds 4KB message
+            }
+
+            cout << "benchmark complete: " << success << "/" << num_commands << " successful\n";
+        }
         else
         {
             std::cerr << "Unsupported mode: " << mode << std::endl;
