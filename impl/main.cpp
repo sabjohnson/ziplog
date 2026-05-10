@@ -5,6 +5,7 @@
 #include "proxy/proxy.h"
 #include "server/server.h"
 #include "subscriber/subscriber.h"
+#include <csignal>
 
 #define SUCCESS 0
 #define ERROR -1
@@ -45,9 +46,13 @@ int main(int argc, char *argv[])
         if (mode == "zipper")
         {
             Zipper zipper(config.make_zipper_config());
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "client")
         {
@@ -79,9 +84,13 @@ int main(int argc, char *argv[])
             }
             Proxy proxy(config.make_proxy_config(*id));
 
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "server")
         {
@@ -92,9 +101,13 @@ int main(int argc, char *argv[])
             }
             Server server(config.make_server_config(*id));
 
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "subscriber")
         {
@@ -105,9 +118,13 @@ int main(int argc, char *argv[])
             }
             Subscriber subscriber(config.make_subscriber_config(*id));
 
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "benchmark")
         {
