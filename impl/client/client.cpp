@@ -36,6 +36,45 @@ namespace ziplog::impl
     bool Client::append(const Command &payload)
     {
         int sock = connection_pool_.get_connection(proxy_);
+        if (sock < 0)
+        {
+            cout << "client::append() failed to connect to proxy" << endl;
+            return false;
+        }
+
+        Timestamp send_time = now();
+        Command data = make_benchmark_payload(send_time);
+
+        // build wire bytes directly — no Message struct
+        auto wire = NetworkUtils::build_wire_bytes(
+            APPEND, 0, 0, 0,
+            data.data(), data.size());
+
+        if (!NetworkUtils::send_bytes_raw(sock, wire.data(), wire.size()))
+        {
+            connection_pool_.close_connection(proxy_);
+            return false;
+        }
+
+        // recv ACK — raw buffered
+        size_t msg_len;
+        const uint8_t *buf = NetworkUtils::recv_raw_buffered(sock, rb_, msg_len);
+        if (!buf)
+        {
+            connection_pool_.close_connection(proxy_);
+            return false;
+        }
+
+        auto header = MessageHeader::peek(buf, msg_len);
+        rb_.consume(2 + msg_len);
+
+        return header && header->type == SUCCESS;
+    }
+
+    /*
+    bool Client::append(const Command &payload)
+    {
+        int sock = connection_pool_.get_connection(proxy_);
         if (sock >= 0)
         {
             auto start = high_resolution_clock::now();
@@ -78,6 +117,7 @@ namespace ziplog::impl
         cout << "client::append() failed to connect to proxy" << endl;
         return false;
     }
+    */
 
     bool Client::bulk_append(const vector<Command> &commands)
     {
