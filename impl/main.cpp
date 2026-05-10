@@ -36,7 +36,7 @@ int main(int argc, char *argv[])
         string config_file = argv[2];
 
         optional<NodeId> id;
-        if (argc == 4)
+        if (argc >= 4)
         {
             id = static_cast<NodeId>(std::stoi(argv[3]));
         }
