@@ -434,7 +434,7 @@ namespace ziplog::api
         }
 
         // listen for connections (https://man7.org/linux/man-pages/man2/listen.2.html)
-        if (listen(sockfd, 10) < 0)
+        if (listen(sockfd, 256) < 0)
         {
             close(sockfd);
             return -1;
