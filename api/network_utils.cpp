@@ -453,6 +453,7 @@ namespace ziplog::api
 
         if (!connect_to_address(sock, ip, port))
         {
+            cerr << "connect failed: " << strerror(errno) << endl;
             close(sock);
             return -1;
         }
