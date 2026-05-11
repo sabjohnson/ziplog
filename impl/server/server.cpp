@@ -65,7 +65,7 @@ namespace ziplog::impl
             {
             case APPEND:
             {
-                cout << "[server " << id() << "] got batch at " << std::to_string(now()) << "\n";
+                // cout << "[server " << id() << "] got batch at " << std::to_string(now()) << "\n";
                 [[fallthrough]];
             }
             case SKIP:
@@ -80,8 +80,18 @@ namespace ziplog::impl
                     // store raw bytes — one copy
                     store_.store(header->sender_id, buf - 2, msg_len + 2);
                     liveness_.remove_timeout(header->sender_id, header->seq_or_count);
+
+                    // update sender id to be server's id
+                    uint8_t *wire_start = const_cast<uint8_t *>(buf - 2);
+                    uint32_t net_sender = htonl(static_cast<uint32_t>(id()));
+                    memcpy(wire_start + 10, &net_sender, 4);
+
                     // broadcast raw bytes — one copy per subscriber worker
                     broadcaster_.broadcast(buf - 2, msg_len + 2);
+
+                    // restore proxy id
+                    uint32_t net_orig = htonl(static_cast<uint32_t>(header->sender_id));
+                    memcpy(wire_start + 10, &net_orig, 4);
                 }
                 break;
             }
