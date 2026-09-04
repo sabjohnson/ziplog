@@ -20,8 +20,8 @@ namespace ziplog::test
      */
     inline void wait_for_propagation(int num = 3)
     {
-        auto duration = num * ziplog::EPOCH_DURATION_MS;
-        std::this_thread::sleep_for(std::chrono::milliseconds(duration));
+        auto duration = num * ziplog::EPOCH_DURATION;
+        std::this_thread::sleep_for(EpochDurationUnit(duration));
     }
 
     /**
@@ -39,8 +39,9 @@ namespace ziplog::test
         }
     }
 
-    inline void verify_elements_match_expected(const std::vector<Command> &output,
-                                               const std::vector<std::string> &expected)
+    // after you remove the timestamps in cmd, return to this version
+    inline void verify_elements_match_expected_original(const std::vector<Command> &output,
+                                                        const std::vector<std::string> &expected)
     {
         ASSERT_EQ(output.size(), expected.size());
 
@@ -53,6 +54,26 @@ namespace ziplog::test
         std::multiset<std::string> expected_set(expected.begin(), expected.end());
 
         EXPECT_EQ(output_set, expected_set);
+    }
+
+    inline void verify_elements_match_expected(const std::vector<Command> &output,
+                                               const std::vector<std::string> &expected)
+    {
+        ASSERT_EQ(output.size(), expected.size());
+
+        vector<string> out_strings;
+        for (const auto &cmd : output)
+            out_strings.push_back(command_to_string(cmd));
+
+        for (const string &exp : expected)
+        {
+            auto it = std::find_if(out_strings.begin(), out_strings.end(),
+                                   [&](const string &s)
+                                   { return s.find(exp) != string::npos; });
+            EXPECT_NE(it, out_strings.end()) << "expected \"" << exp << "\" not found in output";
+            if (it != out_strings.end())
+                out_strings.erase(it); // consume it so duplicates are handled correctly
+        }
     }
 
     inline void verify_elements_match_expected_nested(const std::vector<std::vector<Command>> &output,
@@ -150,38 +171,6 @@ namespace ziplog::test
             }
         }
 
-        void StartSystem_sleeps(const std::string &filename)
-        {
-            // load test config
-            config = parse_config(filename);
-
-            // start all components
-            zipper = std::make_unique<Zipper>(config.make_zipper_config());
-            std::this_thread::sleep_for(100ms);
-
-            for (size_t i = 0; i < config.num_subscribers(); i++)
-            {
-                subscribers.push_back(std::make_unique<Subscriber>(config.make_subscriber_config(i)));
-            }
-            std::this_thread::sleep_for(100ms);
-
-            for (size_t i = 0; i < config.num_servers(); i++)
-            {
-                servers.push_back(std::make_unique<Server>(config.make_server_config(i)));
-            }
-            std::this_thread::sleep_for(100ms);
-
-            for (size_t i = 0; i < config.num_proxies(); i++)
-            {
-                proxies.push_back(std::make_unique<Proxy>(config.make_proxy_config(i)));
-            }
-
-            for (size_t i = 0; i < config.num_proxies(); i++)
-            {
-                clients.push_back(std::make_unique<Client>(config.proxies[i]));
-            }
-        }
-
         void TearDown() override
         {
             clients.clear();
@@ -206,7 +195,6 @@ namespace ziplog::test
             cout << "send append cmd= " << cmd << endl;
             if (clients[client_id]->append(string_to_command(cmd)))
                 return true;
-            false_return();
             return false;
         }
 

@@ -28,7 +28,7 @@ namespace ziplog
 
             // track accepted connections
             vector<int> accepted_sockets_;
-            mutex mu_; // used for accepted connection
+            mutex sockets_mu_; // used for accepted connection
 
             // track per-connection threads so we can join them on shutdown
             vector<thread> connection_threads_;
@@ -78,7 +78,7 @@ namespace ziplog
 
                 // signal listening (for test suite)
                 {
-                    lock_guard<mutex> lock(mu_);
+                    lock_guard<mutex> lock(listening_mu_);
                     listening_cv_.notify_all();
                 }
 
@@ -104,7 +104,7 @@ namespace ziplog
 
                     // track the socket
                     {
-                        lock_guard<mutex> lock(mu_);
+                        lock_guard<mutex> lock(sockets_mu_);
                         accepted_sockets_.push_back(client_socket);
                     }
 
@@ -115,7 +115,7 @@ namespace ziplog
                         handle_connection(client_socket);
                         // stop tracking the socket
                         {
-                            lock_guard<mutex> lock(mu_);
+                            lock_guard<mutex> lock(sockets_mu_);
                             auto it = find(accepted_sockets_.begin(), accepted_sockets_.end(), client_socket);
                             if (it != accepted_sockets_.end()) {
                                 accepted_sockets_.erase(it);
@@ -182,7 +182,7 @@ namespace ziplog
                 }
                 // close all accepted sockets
                 {
-                    lock_guard<mutex> lock(mu_);
+                    lock_guard<mutex> lock(sockets_mu_);
                     for (int sock : accepted_sockets_)
                     {
                         ::shutdown(sock, SHUT_RDWR);

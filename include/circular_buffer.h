@@ -23,7 +23,7 @@ namespace ziplog
             size_t capacity_;
             mutable mutex mu_;
             condition_variable cv_;
-            static constexpr size_t BUFFER_SIZE = 1000; // constant we can make configurable later
+            static constexpr size_t BUFFER_SIZE = 16; // constant we can make configurable later
 
         public:
             CircularBuffer(size_t capacity = BUFFER_SIZE) : capacity_(capacity)

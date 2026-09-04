@@ -30,14 +30,14 @@ namespace ziplog::impl
 
         void handle_freeze(const Message &msg, bool from_zipper)
         {
-            std::cout << "[freeze] server " << server_id_ << " got freeze" << std::endl;
+            ZLOG("[freeze] server " << server_id_ << " got freeze");
             NodeId failed_proxy = msg.get_failed_proxy();
 
             {
                 std::lock_guard<std::mutex> lock(mu_);
                 if (from_zipper && rounds_.count(failed_proxy) && rounds_[failed_proxy] >= msg.get_round())
                 {
-                    std::cout << "[freeze] outdated, ignoring" << std::endl;
+                    ZLOG("[freeze] outdated, ignoring");
                     return;
                 }
                 rounds_[failed_proxy] = msg.get_round();
@@ -70,9 +70,10 @@ namespace ziplog::impl
                     if (resp.type == ACK)
                         break;
 
-                    std::cout << "[freeze] got stored msg seq " << resp.get_sequence_number() << std::endl;
-                    store_.store(failed_proxy, resp);
-                    broadcaster_.broadcast(resp);
+                    ZLOG("[freeze] got stored msg seq " << resp.get_sequence_number());
+                    auto wire = resp.serialize();
+                    store_.store(failed_proxy, wire.data(), wire.size());
+                    broadcaster_.broadcast(wire.data(), wire.size());
                 }
             }
 
@@ -85,7 +86,7 @@ namespace ziplog::impl
             freeze_resp.set_round(msg.get_round());
             freeze_resp.set_sequence_number(liveness_.last_seq(failed_proxy));
 
-            std::cout << "[freeze] last seq = " << liveness_.last_seq(failed_proxy) << std::endl;
+            ZLOG("[freeze] last seq = " << liveness_.last_seq(failed_proxy));
 
             int zip_sock = pool_.get_connection(zipper_);
             if (zip_sock >= 0)
@@ -137,12 +138,15 @@ namespace ziplog::impl
             }
 
             SequenceNumber req_last_seq = msg.get_sequence_number();
-            for (const Message &stored : store_.get(failed_proxy))
+            auto snap = store_.snapshot();
+            auto it = snap.find(failed_proxy);
+            if (it != snap.end())
             {
-                if (stored.get_sequence_number() <= req_last_seq)
-                    continue;
-                if (!NetworkUtils::send_message(socket, stored))
-                    return;
+                for (const auto &wire : it->second)
+                {
+                    // send wire bytes directly
+                    NetworkUtils::send_bytes_raw(socket, wire.data(), wire.size());
+                }
             }
 
             Message ack;

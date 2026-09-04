@@ -5,6 +5,7 @@
 #include "proxy/proxy.h"
 #include "server/server.h"
 #include "subscriber/subscriber.h"
+#include <csignal>
 
 #define SUCCESS 0
 #define ERROR -1
@@ -14,7 +15,7 @@ using namespace ziplog::impl;
 
 int main(int argc, char *argv[])
 {
-    if (argc != 3 && argc != 4)
+    if (argc < 3 || argc > 5)
     {
         std::cerr << "Usage: <mode> <config_file> [id]" << std::endl;
         std::cerr << "Modes:" << std::endl;
@@ -35,7 +36,7 @@ int main(int argc, char *argv[])
         string config_file = argv[2];
 
         optional<NodeId> id;
-        if (argc == 4)
+        if (argc >= 4)
         {
             id = static_cast<NodeId>(std::stoi(argv[3]));
         }
@@ -45,9 +46,13 @@ int main(int argc, char *argv[])
         if (mode == "zipper")
         {
             Zipper zipper(config.make_zipper_config());
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "client")
         {
@@ -79,9 +84,13 @@ int main(int argc, char *argv[])
             }
             Proxy proxy(config.make_proxy_config(*id));
 
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "server")
         {
@@ -92,9 +101,13 @@ int main(int argc, char *argv[])
             }
             Server server(config.make_server_config(*id));
 
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
         }
         else if (mode == "subscriber")
         {
@@ -105,9 +118,34 @@ int main(int argc, char *argv[])
             }
             Subscriber subscriber(config.make_subscriber_config(*id));
 
-            // keep alive until user presses Enter
-            std::cout << "Press Enter to shutdown..." << std::endl;
-            std::cin.get();
+            // keep alive until signal
+            std::cout << "Press CTRL+C to shutdown..." << std::endl;
+            signal(SIGTERM, [](int)
+                   { exit(0); });
+            signal(SIGINT, [](int)
+                   { exit(0); });
+            pause(); // sleep until signal
+        }
+        else if (mode == "benchmark")
+        {
+            if (!id.has_value())
+            {
+                std::cerr << "Benchmark mode requires a proxy ID" << std::endl;
+                return ERROR;
+            }
+            int num_commands = argc >= 5 ? std::stoi(argv[4]) : 1000;
+
+            Address proxy_addr = config.proxies[*id]; // get the proxy address using the id
+            Client client(proxy_addr);
+
+            int success = 0;
+            for (int i = 0; i < num_commands; i++)
+            {
+                if (client.append(Command()))
+                    success++; // empty payload, client auto builds 4KB message
+            }
+
+            cout << "benchmark complete: " << success << "/" << num_commands << " successful\n";
         }
         else
         {

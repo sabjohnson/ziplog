@@ -2,7 +2,7 @@
   "f": 1,
   "max_retries": 3,
   "max_epoch_history": 10,
-  "epoch_duration_ms": 1000,
+  "epoch_duration": 1000,
   "zipper": "127.0.0.1:8000",
   "proxies": [
     "127.0.0.1:8001"

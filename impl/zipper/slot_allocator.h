@@ -25,6 +25,9 @@ namespace ziplog::impl
     private:
         ProxyRegistry &registry_; // shared, not owned
         SequenceNumber global_seq_num_;
+
+        std::mutex estimates_mu_;
+        std::unordered_map<NodeId, size_t> estimates_;
     };
 
 } // namespace ziplog::impl

@@ -22,22 +22,27 @@ namespace ziplog::impl
             log_.push_back(Command()); // index 0 placeholder
         }
 
-        // called per message received from a server
-        void observe(NodeId sender, SequenceNumber seq,
-                     const Command &data, size_t quorum)
+        // observe takes raw data pointer instead of Command
+        std::vector<std::pair<SequenceNumber, int64_t>> observe(
+            NodeId sender, SequenceNumber seq,
+            const uint8_t *data, size_t data_len,
+            size_t quorum)
         {
-            std::lock_guard<std::mutex> lock(mu_);
-            if (applied_.count(seq))
-                return;
-
-            pending_quorum_[seq].insert(sender);
-
-            if (pending_quorum_[seq].size() >= quorum)
+            std::vector<std::pair<SequenceNumber, int64_t>> to_print;
             {
-                apply_locked(seq, data);
-                applied_.insert(seq);
-                pending_quorum_.erase(seq);
+                std::lock_guard<std::mutex> lock(mu_);
+                if (applied_.count(seq))
+                    return to_print;
+
+                pending_quorum_[seq].insert(sender);
+                if (pending_quorum_[seq].size() >= quorum)
+                {
+                    apply_locked(seq, data, data_len, to_print);
+                    applied_.insert(seq);
+                    pending_quorum_.erase(seq);
+                }
             }
+            return to_print;
         }
 
         // wait until log has at least `count` committed entries (blocking)
@@ -57,16 +62,16 @@ namespace ziplog::impl
         }
 
         // returns raw log (index 0 is empty placeholder)
-        const std::vector<Command> &raw() const { return log_; }
+        const vector<vector<uint8_t>> &raw() const { return log_; }
 
         // expands batches and strips skips
         std::vector<std::vector<Command>> expand() const
         {
             std::lock_guard<std::mutex> lock(mu_);
             std::vector<std::vector<Command>> result;
-            for (const Command &entry : log_)
+            for (const auto &entry : log_)
             {
-                std::vector<Command> batch = CommandBatch::deserialize(entry);
+                vector<Command> batch = CommandBatch::deserialize(entry);
                 if (!batch.empty())
                     result.push_back(batch);
             }
@@ -119,10 +124,11 @@ namespace ziplog::impl
             std::cout << "-------- expanded log (" << expanded.size() << ") --------" << std::endl;
             for (size_t i = 0; i < expanded.size(); i++)
             {
-                std::cout << "index " << i + 1 << ": ";
-                for (const Command &c : expanded[i])
+                std::cout << "index " << i + 1 << ": \n";
+                /*
+                for (const auto &c : expanded[i])
                     std::cout << command_to_string(c);
-                std::cout << std::endl;
+                */
             }
         }
 
@@ -139,17 +145,44 @@ namespace ziplog::impl
             std::lock_guard<std::mutex> lock(mu_);
             std::cout << "-------- out of order (" << out_of_order_.size() << ") --------" << std::endl;
             for (const auto &[seq, cmd] : out_of_order_)
-                std::cout << "seq " << seq << ": " << command_to_string(cmd) << std::endl;
+                std::cout << "seq " << seq << ": \n";
         }
 
     private:
         // called with mu_ already held
-        void apply_locked(SequenceNumber seq, const Command &data)
+        void apply_locked(SequenceNumber seq, const uint8_t *data, size_t data_len,
+                          std::vector<std::pair<SequenceNumber, int64_t>> &to_print)
         {
-            out_of_order_[seq] = data;
+            Timestamp received = now();
+
+            // one copy
+            out_of_order_[seq] = (data && data_len > 0)
+                                     ? std::vector<uint8_t>(data, data + data_len)
+                                     : std::vector<uint8_t>{};
+
             while (out_of_order_.count(next_seq_))
             {
-                log_.push_back(out_of_order_[next_seq_]);
+                auto &raw = out_of_order_[next_seq_];
+                vector<Command> commands = CommandBatch::deserialize(raw);
+
+                for (auto &command : commands)
+                {
+                    auto it = std::find(command.begin(), command.end(), '|');
+                    if (it != command.end())
+                    {
+                        string ts_str(command.begin(), it);
+                        if (!ts_str.empty() && std::all_of(ts_str.begin(), ts_str.end(),
+                                                           [](unsigned char c)
+                                                           { return std::isdigit(c); }))
+                        {
+                            Timestamp sent = std::stoull(ts_str);
+                            int64_t latency = static_cast<int64_t>(received) - static_cast<int64_t>(sent);
+                            to_print.emplace_back(next_seq_, latency);
+                        }
+                    }
+                }
+
+                log_.push_back(std::move(out_of_order_[next_seq_]));
                 out_of_order_.erase(next_seq_);
                 next_seq_++;
             }
@@ -159,8 +192,8 @@ namespace ziplog::impl
         mutable std::mutex mu_;
         std::condition_variable cv_;
 
-        std::vector<Command> log_;
-        std::map<SequenceNumber, Command> out_of_order_;
+        vector<vector<uint8_t>> log_;
+        std::map<SequenceNumber, vector<uint8_t>> out_of_order_;
         SequenceNumber next_seq_{1};
 
         // quorum tracking

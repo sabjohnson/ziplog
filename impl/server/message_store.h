@@ -2,36 +2,25 @@
 #include "../api/types.h"
 #include <unordered_map>
 #include <deque>
+#include <vector>
 #include <mutex>
 
 using namespace ziplog::api;
 
 namespace ziplog::impl
 {
-
-    // Thread-safe store of messages per proxy.
-    // Shared between Server, FreezeHandler, and SubscriberBroadcaster.
     class MessageStore
     {
     public:
-        void store(NodeId proxy_id, const Message &msg)
+        // store raw wire bytes — no Message construction
+        void store(NodeId proxy_id, const uint8_t *data, size_t len)
         {
             std::lock_guard<std::mutex> lock(mu_);
-            messages_[proxy_id].push_back(msg);
+            messages_[proxy_id].emplace_back(data, data + len); // one copy
         }
 
-        // returns a snapshot copy of all messages for a proxy
-        std::deque<Message> get(NodeId proxy_id) const
-        {
-            std::lock_guard<std::mutex> lock(mu_);
-            auto it = messages_.find(proxy_id);
-            if (it == messages_.end())
-                return {};
-            return it->second;
-        }
-
-        // returns a full snapshot of all proxy messages
-        std::unordered_map<NodeId, std::deque<Message>> snapshot() const
+        // returns snapshot of raw wire bytes per proxy
+        std::unordered_map<NodeId, std::deque<std::vector<uint8_t>>> snapshot() const
         {
             std::lock_guard<std::mutex> lock(mu_);
             return messages_;
@@ -43,11 +32,8 @@ namespace ziplog::impl
             return messages_.count(proxy_id) > 0;
         }
 
-        std::mutex &mutex() { return mu_; }
-
     private:
         mutable std::mutex mu_;
-        std::unordered_map<NodeId, std::deque<Message>> messages_;
+        std::unordered_map<NodeId, std::deque<std::vector<uint8_t>>> messages_;
     };
-
-} // namespace ziplog::impl
+}

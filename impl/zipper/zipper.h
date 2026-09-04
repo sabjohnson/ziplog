@@ -4,7 +4,7 @@
 #include "zipper/proxy_state.h"
 #include "zipper/slot_allocator.h"
 #include "zipper/reconfig_manager.h"
-#include "zipper/epoch_timer.h"
+#include "zipper/zipper_epoch_timer.h"
 #include <future>
 #include <deque>
 
@@ -43,8 +43,8 @@ namespace ziplog::impl
 
     public:
         Zipper(const ZipperConfig &cfg);
+        ~Zipper();
         void shutdown() override;
-        ~Zipper() = default;
 
         size_t num_proxies() const { return config_.proxies.size(); }
         size_t num_servers() const { return config_.servers.size(); }

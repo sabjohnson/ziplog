@@ -20,7 +20,7 @@ namespace ziplog::impl
                                                                                                                   { return connection_pool_.get_connection(a); },
                                                                                                                   [this](const Address &a)
                                                                                                                   { connection_pool_.close_connection(a); }}),
-          epoch_timer_(cfg.epoch_duration_ms, [this]()
+          epoch_timer_(EpochDurationUnit(cfg.epoch_duration), [this]()
                        { allocate_slots(); }, [this]()
                        { introduce_proxies(); })
     {
@@ -34,12 +34,20 @@ namespace ziplog::impl
         epoch_timer_.start();
     }
 
+    Zipper::~Zipper()
+    {
+        ZLOG("Zipper shutdown() called");
+        epoch_timer_.stop();
+        ZLOG("Zipper timer stoped");
+        BaseNode::shutdown();
+        ZLOG("Zipper basenode shutdown");
+        connection_pool_.close_all();
+        ZLOG("Zipper shutdown() complete");
+    }
+
     void Zipper::shutdown()
     {
-        epoch_timer_.stop();
         BaseNode::shutdown();
-        connection_pool_.close_all();
-        cout << "Zipper shutting down" << endl;
     }
 
     void Zipper::handle_connection(int proxy_socket)
@@ -71,43 +79,57 @@ namespace ziplog::impl
 
     void Zipper::update_slot_estimate(const Message &req)
     {
+        auto start = high_resolution_clock::now();
         if (req.shard_id != shard() || !config_.isValidProxy(req.sender_id))
         {
-            cout << "[zipper] unknown proxy" << endl;
+            ZLOG("[zipper] unknown proxy");
             return;
         }
         if (req.get_num_requests())
         {
-            cout << "[zipper] estimate from proxy " << req.sender_id
-                 << ": " << req.get_num_requests() << endl;
+            ZLOG("[zipper] estimate from proxy " << req.sender_id
+                                                 << ": " << req.get_num_requests());
         }
         slot_allocator_.update_estimate(req.sender_id, req.get_num_requests());
+        auto end = high_resolution_clock::now();
+        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        // cout << "Zipper update slot estimate() : " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 
     void Zipper::allocate_slots()
     {
-        cout << "zipper allocate_slots() called" << endl;
+        auto start = high_resolution_clock::now();
+        // cout << "zipper allocate_slots() called" << endl;
+
         auto allocations = slot_allocator_.compute_allocations(
-            epoch_timer_.next_epoch(), config_.epoch_duration_ms);
+            epoch_timer_.next_epoch(), config_.epoch_duration);
+
+        auto t1 = high_resolution_clock::now();
 
         if (allocations.size())
         {
-            cout << "zipper allocate_slots() got values" << endl;
+            // cout << "zipper allocate_slots() got values" << endl;
+            auto dur = duration_cast<EpochDurationUnit>(t1 - start);
+            cout << "Zipper compute allocations(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
         }
 
         for (const auto &[proxy_id, values] : allocations)
         {
-            cout << "zipper proxy " << proxy_id << " has slots" << endl;
+            ZLOG("zipper proxy " << proxy_id << " has slots");
             thread([this, proxy_id, values]()
                    { deliver_slot_allocation(proxy_id, values); })
                 .detach();
         }
-        cout << "zipper allocate_slots() exited" << endl;
+        auto end = high_resolution_clock::now();
+        auto dur = duration_cast<EpochDurationUnit>(t1 - start);
+
+        // cout << "zipper allocate_slots() exited" << endl;
     }
 
     void Zipper::deliver_slot_allocation(NodeId proxy_id, const vector<SequenceNumber> &values)
     {
-        cout << "zipper done sending slots out" << endl;
+        auto start = high_resolution_clock::now();
+        ZLOG("zipper sending slots out");
 
         Message resp;
         resp.type = ZIP_RESPONSE;
@@ -124,8 +146,17 @@ namespace ziplog::impl
         }
 
         int sock = connection_pool_.get_connection(proxy);
+        // cout << "[zipper] sending out slots to proxy " << proxy_id << " at " << std::to_string(now()) << endl;
         if (sock >= 0 && !NetworkUtils::send_message(sock, resp))
+        {
             connection_pool_.close_connection(proxy);
+            ZLOG("[zipper] failed to send to proxy");
+        }
+        else
+        {
+            ZLOG("[zipper] sent to proxy");
+            // cout << "[zipper] done sending slots to proxy " << proxy_id << " at " << std::to_string(now()) << endl;
+        }
 
         // forward to all servers
         for (const Address &server : config_.servers)
@@ -133,10 +164,20 @@ namespace ziplog::impl
             int sock = connection_pool_.get_connection(server);
             if (sock < 0)
                 continue;
-            NetworkUtils::send_message(sock, resp);
+            if (NetworkUtils::send_message(sock, resp))
+            {
+                ZLOG("[zipper] sent to server");
+            }
+            else
+            {
+                ZLOG("[zipper] failed to send to server");
+            }
         }
 
-        cout << "zipper done sending slots out" << endl;
+        ZLOG("zipper done sending slots out");
+        auto end = high_resolution_clock::now();
+        auto dur = duration_cast<EpochDurationUnit>(end - start);
+        cout << "Zipper deliver slot allocation(): " << dur.count() << " " << EPOCH_DURATION_UNIT_STR << "\n";
     }
 
     void Zipper::add_proxy(const Message &msg, bool is_new)
@@ -199,7 +240,9 @@ namespace ziplog::impl
                                     {
                 NodeId new_id;
                 {
+                    ZLOG("[introduce proxies] waiting for lock...");
                     lock_guard<mutex> lock(registry_.mutex());
+                    ZLOG("[introduce proxies] got lock");
                     new_id = config_.proxies.size();
                     config_.proxies.push_back({ip, port});
                 }
@@ -241,7 +284,7 @@ namespace ziplog::impl
                 if (!NetworkUtils::send_message(sock, join)) return false;
                 Message ack;
                 if (!NetworkUtils::recv_message(sock, ack)) {
-                    cerr << "[zipper] no ack for subscriber join from server " << i << endl;
+                    ZLOG("[zipper] no ack for subscriber join from server " << i);
                     return false;
                 }
                 return true; }));

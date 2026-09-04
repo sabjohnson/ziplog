@@ -12,8 +12,11 @@
 !impl/**
 !tests/
 !tests/**
+!docu/
+!docu/**
 
 # Keep specific files in root
 !Makefile
 !README.md
+!dev_notes.md
 !.gitignore

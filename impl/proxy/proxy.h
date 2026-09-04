@@ -22,11 +22,14 @@ namespace ziplog::impl
         size_t num_servers() const { return config_.servers.size(); }
 
     private:
+        std::atomic<SequenceNumber> next_seq_{1};
+        Timestamp epoch_duration_{0};
+
         // --- components ---
-        SlotScheduler slot_scheduler_;
+        ProxyEpochTimer epoch_timer_;
         ServerReplicator replicator_;
         ClientBufferManager client_buffers_;
-        ProxyEpochTimer epoch_timer_;
+        SlotScheduler slot_scheduler_;
 
         // --- zipper connection ---
         ConnectionPool zipper_pool_;
@@ -34,7 +37,7 @@ namespace ziplog::impl
 
         // --- epoch callbacks (called by epoch_timer_) ---
         void update_slot_estimate();
-        void send_out_batch();
+        void send_out_batch(SequenceNumber seq);
 
         // --- message handling ---
         void handle_connection(int client_socket) override;
